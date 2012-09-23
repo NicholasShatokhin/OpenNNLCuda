@@ -3,12 +3,16 @@ CONFIG += console
 CONFIG -= qt
 
 SOURCES += main.cpp
+
 CUDA_SOURCES += opennnl.cu
+
+OTHER_FILES += opennnl.cu
 
 HEADERS += \
     opennnl.h \
     utils.h
 
+INCLUDEPATH += /usr/local/cuda/include
 
 CUDA_DIR = /usr/local/cuda
 

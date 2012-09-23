@@ -9,14 +9,14 @@ inline void initialize_random_generator()
     srand(time(NULL));
 }
 
-inline double closed_interval_rand(double x0, double x1)
+/*float closed_interval_rand(float x0, float x1)
 {
-    return x0 + (x1 - x0) * rand() / ((double) RAND_MAX);
-}
+    return x0 + (x1 - x0) * rand() / ((float) RAND_MAX);
+}*/
 
-inline double unified_random()
+/*float unified_random()
 {
     return closed_interval_rand(0, 2) - 1;
-}
+}*/
 
 #endif // UTILS_H

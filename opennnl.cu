@@ -1,5 +1,41 @@
 #include "opennnl.h"
 
+__device__ float activation(float x)
+{
+    return 1 / (1 + exp((-1)*x));
+}
+
+__global__ void weighting(float * outputs, float * inputs, float * weights, int start, int inputsCount, int neuronsCount)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(idx < inputsCount * neuronsCount)
+    {
+        outputs[idx] = inputs[idx%inputsCount] * weights[start+idx];
+    }
+}
+
+__global__ void calculateOut(float * outputs, float * inputs, int inputsCount, int neuronsCount)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(idx < neuronsCount)
+    {
+        float temp = 0;
+
+        for(int k=0;k<inputsCount;k++)
+        {
+            temp += inputs[idx*inputsCount+k];
+        }
+
+        outputs[idx] = activation(temp);
+    }
+}
+
+#define cudaCall(x) { if((x) != cudaSuccess) { \
+    printf("Error at %s:%d -- %s\n",__FILE__,__LINE__, cudaGetErrorString(x)); \
+    exit(EXIT_FAILURE);}}
+
 OpenNNL::OpenNNL(const int inputsCount, const int layersCount, const int * neuronsPerLayerCount)
 {
     _inputsCount = inputsCount;
@@ -7,53 +43,81 @@ OpenNNL::OpenNNL(const int inputsCount, const int layersCount, const int * neuro
     _weightsCount = 0;
     _neuronsCount = 0;
 
-    _neuronsPerLayerCount = new int[_layersCount];
-    _neuronsInPreviousLayers = new int[_layersCount];
-    _inputsInPreviousLayers = new int[_layersCount];
-    _inputsInCurrentLayer = new int[_layersCount];
+    int * _hostNeuronsPerLayerCount = new int[_layersCount];
+    int * _hostNeuronsInPreviousLayers = new int[_layersCount];
+    int * _hostInputsInPreviousLayers = new int[_layersCount];
+    int * _hostInputsInCurrentLayer = new int[_layersCount];
 
-    _inputs = new double[_inputsCount];
+    cudaCall(cudaMalloc(&_neuronsPerLayerCount, _layersCount*sizeof(int)));
+    cudaCall(cudaMalloc(&_neuronsInPreviousLayers, _layersCount*sizeof(int)));
+    cudaCall(cudaMalloc(&_inputsInPreviousLayers, _layersCount*sizeof(int)));
+    cudaCall(cudaMalloc(&_inputsInCurrentLayer, _layersCount*sizeof(int)));
+
+    _inputs = new float[_inputsCount];
+
+    cudaCall(cudaMalloc(&_deviceInputs, _inputsCount*sizeof(float)));
 
     int inputs = _inputsCount;
 
     for(int i=0;i<_layersCount;i++)
     {
-        _neuronsInPreviousLayers[i] = _neuronsCount;
-        _inputsInPreviousLayers[i] = _weightsCount;
+        _hostNeuronsInPreviousLayers[i] = _neuronsCount;
+        _hostInputsInPreviousLayers[i] = _weightsCount;
 
-        _inputsInCurrentLayer[i] = inputs;
+        _hostInputsInCurrentLayer[i] = inputs;
 
         _weightsCount += neuronsPerLayerCount[i] * inputs;
         _neuronsCount += neuronsPerLayerCount[i];
 
-        inputs = _neuronsPerLayerCount[i] = neuronsPerLayerCount[i];
+        inputs = _hostNeuronsPerLayerCount[i] = neuronsPerLayerCount[i];
     }
 
     _outputsCount = inputs;
-    _outputs = new double[_outputsCount];
+    _outputs = new float[_outputsCount];
 
-    _derivatives = new double[_neuronsCount];
+    cudaCall(cudaMalloc(&_deviceOutputs, _outputsCount*sizeof(float)));
 
-    _neuronsInputsWeights = new double[_weightsCount];
-    _neuronsBiases = new double[_neuronsCount];
+    cudaCall(cudaMemcpy(_neuronsPerLayerCount, _hostNeuronsPerLayerCount, _layersCount*sizeof(int), cudaMemcpyHostToDevice));
+    cudaCall(cudaMemcpy(_neuronsInPreviousLayers, _hostNeuronsInPreviousLayers, _layersCount*sizeof(int), cudaMemcpyHostToDevice));
+    cudaCall(cudaMemcpy(_inputsInPreviousLayers, _hostInputsInPreviousLayers, _layersCount*sizeof(int), cudaMemcpyHostToDevice));
+    cudaCall(cudaMemcpy(_inputsInCurrentLayer, _hostInputsInCurrentLayer, _layersCount*sizeof(int), cudaMemcpyHostToDevice));
+
+    delete _hostNeuronsPerLayerCount;
+    delete _hostNeuronsInPreviousLayers;
+    delete _hostInputsInPreviousLayers;
+    delete _hostInputsInCurrentLayer;
+    //_derivatives = new float[_neuronsCount];
+
+    //_neuronsInputsWeights = new float[_weightsCount];
+    //_neuronsBiases = new float[_neuronsCount];
+    cudaCall(cudaMalloc(&_neuronsInputsWeights, _weightsCount*sizeof(float)));
+    cudaCall(cudaMalloc(&_neuronsBiases, _neuronsCount*sizeof(float)));
 }
 
 OpenNNL::~OpenNNL()
 {
-    delete[] _neuronsPerLayerCount;
-    delete[] _neuronsInPreviousLayers;
-    delete[] _inputsInPreviousLayers;
-    delete[] _inputsInCurrentLayer;
+    //delete[] _neuronsPerLayerCount;
+    //delete[] _neuronsInPreviousLayers;
+    //delete[] _inputsInPreviousLayers;
+    //delete[] _inputsInCurrentLayer;
+    cudaCall(cudaFree(_neuronsPerLayerCount));
+    cudaCall(cudaFree(_neuronsInPreviousLayers));
+    cudaCall(cudaFree(_inputsInPreviousLayers));
+    cudaCall(cudaFree(_inputsInCurrentLayer));
     delete[] _inputs;
     delete[] _outputs;
-    delete[] _derivatives;
-    delete[] _neuronsInputsWeights;
-    delete[] _neuronsBiases;
+    cudaCall(cudaFree(_deviceInputs));
+    cudaCall(cudaFree(_deviceOutputs));
+    //delete[] _derivatives;
+    //delete[] _neuronsInputsWeights;
+    //delete[] _neuronsBiases;
+    cudaCall(cudaFree(_neuronsInputsWeights));
+    cudaCall(cudaFree(_neuronsBiases));
 }
 
 void OpenNNL::printDebugInfo()
 {
-    printf("inputsCount=%d\n", _inputsCount);
+    /*printf("inputsCount=%d\n", _inputsCount);
     printf("outputsCount=%d\n", _outputsCount);
     printf("layersCount=%d\n", _layersCount);
     printf("neuronsCount=%d\n", _neuronsCount);
@@ -65,7 +129,7 @@ void OpenNNL::printDebugInfo()
         printf("neurons in all layers before %d: %d\n", i, _neuronsInPreviousLayers[i]);
         printf("inputs in all layers before %d: %d\n", i, _inputsInPreviousLayers[i]);
         printf("inputs of each neuron in layer %d: %d\n", i, _inputsInCurrentLayer[i]);
-    }
+    }*/
 }
 
 inline int OpenNNL::indexByLayerAndNeuron(int layer, int neuron)
@@ -78,94 +142,99 @@ inline int OpenNNL::indexByLayerNeuronAndInput(int layer, int neuron, int input)
     return _inputsInPreviousLayers[layer] + neuron*_inputsInCurrentLayer[layer] + input;
 }
 
-inline void OpenNNL::setB(int layer, int neuron, int input, double value)
+inline void OpenNNL::setB(int layer, int neuron, int input, float value)
 {
     _Bs[indexByLayerNeuronAndInput(layer, neuron, input)] = value;
 }
 
-inline double OpenNNL::getB(int layer, int neuron, int input)
+inline float OpenNNL::getB(int layer, int neuron, int input)
 {
     return _Bs[indexByLayerNeuronAndInput(layer, neuron, input)];
 }
 
-inline void OpenNNL::setBForBias(int layer, int neuron, double value)
+inline void OpenNNL::setBForBias(int layer, int neuron, float value)
 {
     _BsForBias[indexByLayerAndNeuron(layer, neuron)] = value;
 }
 
-inline double OpenNNL::getBForBias(int layer, int neuron)
+inline float OpenNNL::getBForBias(int layer, int neuron)
 {
     return _BsForBias[indexByLayerAndNeuron(layer, neuron)];
 }
 
-inline void OpenNNL::setH(int layer, int neuron, int input, double value)
+inline void OpenNNL::setH(int layer, int neuron, int input, float value)
 {
     _Hs[indexByLayerNeuronAndInput(layer, neuron, input)] = value;
 }
 
-inline double OpenNNL::getH(int layer, int neuron, int input)
+inline float OpenNNL::getH(int layer, int neuron, int input)
 {
     return _Hs[indexByLayerNeuronAndInput(layer, neuron, input)];
 }
 
-inline void OpenNNL::setHForBias(int layer, int neuron, double value)
+inline void OpenNNL::setHForBias(int layer, int neuron, float value)
 {
     _HsForBias[indexByLayerAndNeuron(layer, neuron)] = value;
 }
 
-inline double OpenNNL::getHForBias(int layer, int neuron)
+inline float OpenNNL::getHForBias(int layer, int neuron)
 {
     return _HsForBias[indexByLayerAndNeuron(layer, neuron)];
 }
 
-inline void OpenNNL::setWeight(int layer, int neuron, int input, double value)
+inline void OpenNNL::setWeight(int layer, int neuron, int input, float value)
 {
     _neuronsInputsWeights[indexByLayerNeuronAndInput(layer, neuron, input)] = value;
 }
 
-inline double OpenNNL::getWeight(int layer, int neuron, int input)
+inline float OpenNNL::getWeight(int layer, int neuron, int input)
 {
     return _neuronsInputsWeights[indexByLayerNeuronAndInput(layer, neuron, input)];
 }
 
-inline void OpenNNL::setBias(int layer, int neuron, double value)
+inline void OpenNNL::setBias(int layer, int neuron, float value)
 {
     _neuronsBiases[indexByLayerAndNeuron(layer, neuron)] = value;
 }
 
-inline double OpenNNL::getBias(int layer, int neuron)
+inline float OpenNNL::getBias(int layer, int neuron)
 {
     return _neuronsBiases[indexByLayerAndNeuron(layer, neuron)];
 }
 
-inline void OpenNNL::setDerivative(int layer, int neuron, double value)
+/*inline void OpenNNL::setDerivative(int layer, int neuron, float value)
 {
     _derivatives[indexByLayerAndNeuron(layer, neuron)] = value;
 }
 
-inline double OpenNNL::getDerivative(int layer, int neuron)
+inline float OpenNNL::getDerivative(int layer, int neuron)
 {
     return _derivatives[indexByLayerAndNeuron(layer, neuron)];
-}
+}*/
 
-inline void OpenNNL::setInput(int index, double value)
+inline void OpenNNL::setInput(int index, float value)
 {
     _inputs[index] = value;
 }
 
-inline double OpenNNL::getOutput(int index)
+inline float OpenNNL::getOutput(int index)
 {
     return _outputs[index];
 }
 
+__global__ void _cudaRandomizeWeights(float * neuronsInputsWeights, int weightsCount, int inputsCount)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(idx < weightsCount)
+    {
+        neuronsInputsWeights[idx] = /*unified_random() /*/ sqrtf(inputsCount);
+    }
+}
+
 void OpenNNL::randomizeWeights()
 {
-    initialize_random_generator();
-
-    /*for(int i=0;i<_weightsCount;i++)
-    {
-        _neuronsInputsWeights[i] = unified_random();
-    }*/
+    /*initialize_random_generator();
 
     int inputs = _inputsCount;
 
@@ -177,18 +246,14 @@ void OpenNNL::randomizeWeights()
         }
 
         inputs = _neuronsPerLayerCount[i];
-    }
+    }*/
 
 }
 
 void OpenNNL::randomizeBiases()
 {
-    initialize_random_generator();
+    /*initialize_random_generator();
 
-    /*for(int i=0;i<_neuronsCount;i++)
-    {
-        _neuronsBiases[i] = unified_random();
-    }*/
     int inputs = _inputsCount;
 
     for(int i=0;i<_layersCount;i++)
@@ -199,7 +264,7 @@ void OpenNNL::randomizeBiases()
         }
 
         inputs = _neuronsPerLayerCount[i];
-    }
+    }*/
 }
 
 void OpenNNL::randomizeWeightsAndBiases()
@@ -211,7 +276,7 @@ void OpenNNL::randomizeWeightsAndBiases()
 /*****************************************************************************/
 /* Вычислить активационную функцию y(x) = 2x / (1 + abs(x)). */
 /*****************************************************************************/
-inline double OpenNNL::activation(double x, TActivationKind kind)
+inline float OpenNNL::activation(float x, TActivationKind kind)
 {
     return ((kind == SIG) ? (2.0 * x / (1 + fabs(x))):x);
 }
@@ -223,25 +288,25 @@ inline double OpenNNL::activation(double x, TActivationKind kind)
     dx     (1 + abs(x))^2
 */
 /*****************************************************************************/
-inline double OpenNNL::activation_derivative(double x, TActivationKind kind)
+inline float OpenNNL::activation_derivative(float x, TActivationKind kind)
 {
-    double temp = 1.0 + fabs(x);
+    float temp = 1.0 + fabs(x);
     return ((kind == SIG) ? (2.0 / (temp * temp)):1.0);
 }
 
-double * OpenNNL::_calculateWorker(double *inpt)
+float * OpenNNL::_calculateWorker(float *inpt)
 {
     int inputsCount;
-    double * temp;
-    double * inputs = new double[_inputsCount];
+    float * temp;
+    float * inputs = new float[_inputsCount];
 
-    memcpy(inputs, inpt, sizeof(double)*_inputsCount);
+    memcpy(inputs, inpt, sizeof(float)*_inputsCount);
 
     inputsCount = _inputsCount;
 
     for(int i=0;i<_layersCount;i++)
     {
-        temp = new double[_neuronsPerLayerCount[i]*inputsCount];
+        temp = new float[_neuronsPerLayerCount[i]*inputsCount];
         for(int j=0;j<_neuronsPerLayerCount[i];j++)
         {
             for(int k=0;k<inputsCount;k++)
@@ -252,7 +317,7 @@ double * OpenNNL::_calculateWorker(double *inpt)
 
         delete[] inputs;
 
-        inputs = new double[_neuronsPerLayerCount[i]];
+        inputs = new float[_neuronsPerLayerCount[i]];
 
         for(int j=0;j<_neuronsPerLayerCount[i];j++)
         {
@@ -273,24 +338,24 @@ double * OpenNNL::_calculateWorker(double *inpt)
         delete[] temp;
     }
 
-    memcpy(_outputs, inputs, sizeof(double)*inputsCount);
+    memcpy(_outputs, inputs, sizeof(float)*inputsCount);
 
     delete[] inputs;
 
     return _outputs;
 }
 
-double * OpenNNL::calculate(double *inputs)
+float * OpenNNL::calculate(float *inputs)
 {
     if(inputs)
     {
-        memcpy(_inputs, inputs, _inputsCount*sizeof(double));
+        memcpy(_inputs, inputs, _inputsCount*sizeof(float));
     }
 
     return _calculateWorker(_inputs);
 }
 
-double * OpenNNL::calculateRef(double *inputs)
+float * OpenNNL::calculateRef(float *inputs)
 {
     if(!inputs)
         inputs = _inputs;
@@ -298,19 +363,19 @@ double * OpenNNL::calculateRef(double *inputs)
     return _calculateWorker(inputs);
 }
 
-void OpenNNL::calculateNeuronsOutputsAndDerivatives(double *inpt, double *outputs, double *derivatives)
+void OpenNNL::calculateNeuronsOutputsAndDerivatives(float *inpt, float *outputs, float *derivatives)
 {
     int inputsCount, neuronIndex = 0;
-    double * temp;
-    double * inputs = new double[_inputsCount];
+    float * temp;
+    float * inputs = new float[_inputsCount];
 
-    memcpy(inputs, inpt, sizeof(double)*_inputsCount);
+    memcpy(inputs, inpt, sizeof(float)*_inputsCount);
 
     inputsCount = _inputsCount;
 
     for(int i=0;i<_layersCount;i++)
     {
-        temp = new double[_neuronsPerLayerCount[i]*inputsCount];
+        temp = new float[_neuronsPerLayerCount[i]*inputsCount];
         for(int j=0;j<_neuronsPerLayerCount[i];j++)
         {
             for(int k=0;k<inputsCount;k++)
@@ -321,7 +386,7 @@ void OpenNNL::calculateNeuronsOutputsAndDerivatives(double *inpt, double *output
 
         delete[] inputs;
 
-        inputs = new double[_neuronsPerLayerCount[i]];
+        inputs = new float[_neuronsPerLayerCount[i]];
 
         for(int j=0;j<_neuronsPerLayerCount[i];j++)
         {
@@ -348,12 +413,12 @@ void OpenNNL::calculateNeuronsOutputsAndDerivatives(double *inpt, double *output
     delete[] inputs;
 }
 
-double OpenNNL::_changeWeightsByBP(double * trainingInputs, double *trainingOutputs, double speed, double sample_weight)
+float OpenNNL::_changeWeightsByBP(float * trainingInputs, float *trainingOutputs, float speed, float sample_weight)
 {
-    double error = 0, current_error;
-    double * localGradients = new double[_neuronsCount];
-    double * outputs = new double[_neuronsCount];
-    double * derivatives = new double[_neuronsCount];
+    float error = 0, current_error;
+    float * localGradients = new float[_neuronsCount];
+    float * outputs = new float[_neuronsCount];
+    float * derivatives = new float[_neuronsCount];
 
     calculateNeuronsOutputsAndDerivatives(trainingInputs, outputs, derivatives);
 
@@ -415,13 +480,13 @@ double OpenNNL::_changeWeightsByBP(double * trainingInputs, double *trainingOutp
     return error;
 }
 
-double OpenNNL::_changeWeightsByIDBD(double * trainingInputs, double *trainingOutputs, double speed, double sample_weight)
+float OpenNNL::_changeWeightsByIDBD(float * trainingInputs, float *trainingOutputs, float speed, float sample_weight)
 {
-    double error = 0, current_error;
-    double cur_rate, delta, deltaB, deltaH;
-    double * localGradients = new double[_neuronsCount];
-    double * outputs = new double[_neuronsCount];
-    double * derivatives = new double[_neuronsCount];
+    float error = 0, current_error;
+    float cur_rate, delta, deltaB, deltaH;
+    float * localGradients = new float[_neuronsCount];
+    float * outputs = new float[_neuronsCount];
+    float * derivatives = new float[_neuronsCount];
 
     calculateNeuronsOutputsAndDerivatives(trainingInputs, outputs, derivatives);
 
@@ -579,278 +644,17 @@ double OpenNNL::_changeWeightsByIDBD(double * trainingInputs, double *trainingOu
     return error;
 }
 
-/*double OpenNNL::_changeWeightsByIDBD(double * trainingInputs, double *trainingOutputs, double speed, double sample_weight)
+bool OpenNNL::_doEpochBP(int samplesCount, float * trainingInputs, float * trainingOutputs, int numEpoch, float speed, float minError)
 {
-    int i, j, k, nInputsCount;
-    double cur_output, cur_input, cur_error;
-    double delta_bias, delta_weight;
-    double cur_rate, dB, newH;
-
-    double * localGradients = new double[_neuronsCount];
-    double * outputs = new double[_neuronsCount];
-    double * derivatives = new double[_neuronsCount];
-
-    calculateNeuronsOutputsAndDerivatives(trainingInputs, outputs, derivatives);
-
-    if(_layersCount > 1)
-    {
-        i = _layersCount-1;
-        nInputsCount = _inputsInCurrentLayer[i];
-
-        for (j = 0; j < _neuronsPerLayerCount[i]; j++)
-        {
-            cur_error = (trainingOutputs[j] - outputs[indexByLayerAndNeuron(i, j)]) * sample_weight;
-
-            localGradients[indexByLayerAndNeuron(i, j)] = cur_error * derivatives[indexByLayerAndNeuron(i, j)];
-
-            dB = speed * localGradients[indexByLayerAndNeuron(i, j)] * getHForBias(i, j);
-
-            if (dB > 2.0)
-            {
-                dB = 2.0;
-            }
-            else
-            {
-                if (dB < -2.0)
-                {
-                    dB = -2.0;
-                }
-            }
-            setBForBias(i, j, getBForBias(i, j) + dB);
-            cur_rate = exp(getBForBias(i, j));
-
-            delta_bias = cur_rate * localGradients[indexByLayerAndNeuron(i, j)];
-            setBias(i, j, getBias(i, j) + delta_bias);
-
-            newH = 1.0 - cur_rate;
-            if (newH <= 0.0)
-            {
-                newH = delta_bias;
-            }
-            else
-            {
-                newH = getHForBias(i ,j) * newH + delta_bias;
-            }
-            setHForBias(i, j, newH);
-        }
-
-        // Цикл по всем скрытым слоям от последнего до первого
-        for (i = _layersCount-2; i >= 0; i--)
-        {
-            nInputsCount = _inputsInCurrentLayer[i];
-
-            for (j = 0; j < _neuronsPerLayerCount[i]; j++)
-            {
-                cur_output = outputs[indexByLayerAndNeuron(i, j)];
-                cur_error = 0.0;
-                for (k = 0; k < _neuronsPerLayerCount[i+1]; k++)
-                {
-                    cur_error += getWeight(i+1,k,j) * localGradients[indexByLayerAndNeuron(i, k)];
-
-                    dB = speed * localGradients[indexByLayerAndNeuron(i, k)] * getH(i+1,k,j) * cur_output;
-                    if (dB > 2.0)
-                    {
-                        dB = 2.0;
-                    }
-                    else
-                    {
-                        if (dB < -2.0)
-                        {
-                            dB = -2.0;
-                        }
-                    }
-                    setB(i+1,k,j, getB(i+1,k,j) + dB);
-
-                    cur_rate = exp(getB(i+1,k,j));
-                    //cur_rate = m_rate;
-
-                    delta_weight = cur_rate*cur_output*localGradients[indexByLayerAndNeuron(i, k)];
-                    setWeight(i+1,k,j, getWeight(i+1,k,j) + delta_weight);
-
-                    newH = 1.0 - cur_rate * cur_output * cur_output;
-                    if (newH <= 0.0)
-                    {
-                        newH = delta_weight;
-                    }
-                    else
-                    {
-                        newH = getH(i+1,k,j) * newH + delta_weight;
-                    }
-                    setH(i+1,k,j, newH);
-                }
-
-                // на основе ошибки вычисляем локальный градиент
-                localGradients[indexByLayerAndNeuron(i, j)] = cur_error * derivatives[indexByLayerAndNeuron(i, j)];
-
-                dB = speed * localGradients[indexByLayerAndNeuron(i, j)] * getHForBias(i, j);
-                if (dB > 2.0)
-                {
-                    dB = 2.0;
-                }
-                else
-                {
-                    if (dB < -2.0)
-                    {
-                        dB = -2.0;
-                    }
-                }
-                setBForBias(i, j, getBForBias(i,j)+dB);
-                cur_rate = exp(getBForBias(i, j));
-
-                // корректируем смещение нейрона
-                delta_bias = cur_rate * localGradients[indexByLayerAndNeuron(i, j)];
-
-                setBias(i, j, getBias(i,j) + delta_bias);
-
-                // вычисляем новое значение параметра H для смещения
-                newH = 1.0 - cur_rate;
-                if (newH <= 0.0)
-                {
-                    newH = delta_bias;
-                }
-                else
-                {
-                    newH = getHForBias(i, j) * newH + delta_bias;
-                }
-                setHForBias(i, j, newH);
-            }
-        }
-
-        for (j = 0; j < _neuronsPerLayerCount[0]; j++)
-        {
-            for (k = 0; k < nInputsCount; k++)
-            {
-                dB = speed * localGradients[indexByLayerAndNeuron(0, j)] * getH(0,j,k) * trainingInputs[k];
-                if (dB > 2.0)
-                {
-                    dB = 2.0;
-                }
-                else
-                {
-                    if (dB < -2.0)
-                    {
-                        dB = -2.0;
-                    }
-                }
-                setB(0,j,k, getB(0,j,k) + dB);
-
-                cur_rate = exp(getB(0,j,k));
-                //cur_rate = m_rate;
-
-                cur_input = trainingInputs[k];
-
-                delta_weight = cur_rate * cur_input * localGradients[indexByLayerAndNeuron(0, j)];
-                setWeight(0, j, k, getWeight(0, j, k) + delta_weight);
-
-                newH = 1.0 - cur_rate * cur_input * cur_input;
-                if (newH <= 0.0)
-                {
-                    newH = delta_weight;
-                }
-                else
-                {
-                    newH = getH(0,j,k) * newH + delta_weight;
-                }
-                setH(0,j,k, newH);
-            }
-        }
-    }
-    else
-    {
-        nInputsCount = _inputsInCurrentLayer[0];
-        // Для каждого нейрона слоя (цикл по j)
-        for (j = 0; j < _neuronsPerLayerCount[0]; j++)
-        {
-            cur_error = (trainingOutputs[j] - outputs[indexByLayerAndNeuron(0, j)]) * sample_weight;
-
-            // вычисляем локальный градиент
-            localGradients[indexByLayerAndNeuron(0, j)] = cur_error * derivatives[indexByLayerAndNeuron(0, j)];
-
-            dB = speed * localGradients[indexByLayerAndNeuron(0, j)] * getHForBias(0,j);
-            if (dB > 2.0)
-            {
-                dB = 2.0;
-            }
-            else
-            {
-                if (dB < -2.0)
-                {
-                    dB = -2.0;
-                }
-            }
-            setBForBias(0,j, getBForBias(0,j) + dB);
-            cur_rate = exp(getBForBias(0,j));
-
-            // корректируем смещение нейрона
-            delta_bias = cur_rate * localGradients[indexByLayerAndNeuron(0, j)];
-            setBias(0, j, getBias(0, j) + delta_bias);
-
-            // вычисляем новое значение параметра H для смещения
-            newH = 1.0 - cur_rate;
-            if (newH <= 0.0)
-            {
-                newH = delta_bias;
-            }
-            else
-            {
-                newH = getHForBias(0, j) * newH + delta_bias;
-            }
-            setHForBias(0, j, newH);
-
-            // Для всех входов j-го нейрона (цикл по k)
-            for (k = 0; k < nInputsCount; k++)
-            {
-                dB = speed * localGradients[indexByLayerAndNeuron(0, j)] * getH(0,j,k) * trainingInputs[k];
-                if (dB > 2.0)
-                {
-                    dB = 2.0;
-                }
-                else
-                {
-                    if (dB < -2.0)
-                    {
-                        dB = -2.0;
-                    }
-                }
-                setB(0, j, k, getB(0, j, k) + dB);
-
-                cur_rate = exp(getB(0, j, k));
-
-                cur_input = trainingInputs[k];
-
-                delta_weight = cur_rate * cur_input * localGradients[indexByLayerAndNeuron(0, j)];
-                setWeight(0,j,k, getWeight(0,j,k) + delta_weight);
-
-                newH = 1.0 - cur_rate * cur_input * cur_input;
-                if (newH <= 0.0)
-                {
-                    newH = delta_weight;
-                }
-                else
-                {
-                    newH = getH(0,j,k) * newH + delta_weight;
-                }
-                setH(0,j,k, newH);
-            }
-        }
-    }
-
-    delete[] localGradients;
-    delete[] outputs;
-    delete[] derivatives;
-}*/
-
-bool OpenNNL::_doEpochBP(int samplesCount, double * trainingInputs, double * trainingOutputs, int numEpoch, double speed, double minError)
-{
-    double error = 0;
-    double * currentSampleInputs = new double[_inputsCount];
-    double * currentSampleOutputs = new double[_outputsCount];
+    float error = 0;
+    float * currentSampleInputs = new float[_inputsCount];
+    float * currentSampleOutputs = new float[_outputsCount];
 
     for(int sample=0;sample<samplesCount;sample++)
     {
         cout << "Epoch: " << numEpoch << ", Sample: " << sample << endl;
-        memcpy(currentSampleInputs, trainingInputs+sample*_inputsCount, _inputsCount*sizeof(double));
-        memcpy(currentSampleOutputs, trainingOutputs+sample*_outputsCount, _outputsCount*sizeof(double));
+        memcpy(currentSampleInputs, trainingInputs+sample*_inputsCount, _inputsCount*sizeof(float));
+        memcpy(currentSampleOutputs, trainingOutputs+sample*_outputsCount, _outputsCount*sizeof(float));
 
         error = _changeWeightsByBP(currentSampleInputs, currentSampleOutputs, speed, 1);
     }
@@ -861,17 +665,17 @@ bool OpenNNL::_doEpochBP(int samplesCount, double * trainingInputs, double * tra
     return (error <= minError);
 }
 
-bool OpenNNL::_doEpochIDBD(int samplesCount, double * trainingInputs, double * trainingOutputs, int numEpoch, double speed, double minError)
+bool OpenNNL::_doEpochIDBD(int samplesCount, float * trainingInputs, float * trainingOutputs, int numEpoch, float speed, float minError)
 {
-    double error = 0;
-    double * currentSampleInputs = new double[_inputsCount];
-    double * currentSampleOutputs = new double[_outputsCount];
+    float error = 0;
+    float * currentSampleInputs = new float[_inputsCount];
+    float * currentSampleOutputs = new float[_outputsCount];
 
     for(int sample=0;sample<samplesCount;sample++)
     {
         cout << "Sample: " << sample << endl;
-        memcpy(currentSampleInputs, trainingInputs+sample*_inputsCount, _inputsCount*sizeof(double));
-        memcpy(currentSampleOutputs, trainingOutputs+sample*_outputsCount, _outputsCount*sizeof(double));
+        memcpy(currentSampleInputs, trainingInputs+sample*_inputsCount, _inputsCount*sizeof(float));
+        memcpy(currentSampleOutputs, trainingOutputs+sample*_outputsCount, _outputsCount*sizeof(float));
 
         error = _changeWeightsByIDBD(currentSampleInputs, currentSampleOutputs, speed, 1);
     }
@@ -882,7 +686,7 @@ bool OpenNNL::_doEpochIDBD(int samplesCount, double * trainingInputs, double * t
     return (error <= minError);
 }
 
-void OpenNNL::_trainingBP(int samplesCount, double * trainingInputs, double * trainingOutputs, int maxEpochsCount, double speed, double error)
+void OpenNNL::_trainingBP(int samplesCount, float * trainingInputs, float * trainingOutputs, int maxEpochsCount, float speed, float error)
 {
     for(int i=0;i<maxEpochsCount;i++)
     {
@@ -894,7 +698,7 @@ void OpenNNL::_trainingBP(int samplesCount, double * trainingInputs, double * tr
 }
 
 
-void OpenNNL::_trainingIDBD(int samplesCount, double * trainingInputs, double * trainingOutputs, int maxEpochsCount, double speed, double error)
+void OpenNNL::_trainingIDBD(int samplesCount, float * trainingInputs, float * trainingOutputs, int maxEpochsCount, float speed, float error)
 {
     for(int i=0;i<maxEpochsCount;i++)
     {
@@ -905,18 +709,18 @@ void OpenNNL::_trainingIDBD(int samplesCount, double * trainingInputs, double * 
     }
 }
 
-void OpenNNL::trainingBP(int samplesCount, double * trainingInputs, double *trainingOutputs, int maxEpochsCount, double speed, double error)
+void OpenNNL::trainingBP(int samplesCount, float * trainingInputs, float *trainingOutputs, int maxEpochsCount, float speed, float error)
 {
     _trainingBP(samplesCount, trainingInputs, trainingOutputs, maxEpochsCount, speed, error);
 }
 
-void OpenNNL::trainingIDBD(int samplesCount, double * trainingInputs, double *trainingOutputs, int maxEpochsCount, double speed, double error)
+void OpenNNL::trainingIDBD(int samplesCount, float * trainingInputs, float *trainingOutputs, int maxEpochsCount, float speed, float error)
 {
-    _Bs = new double[_weightsCount];
-    _Hs = new double[_weightsCount];
+    _Bs = new float[_weightsCount];
+    _Hs = new float[_weightsCount];
 
-    _BsForBias = new double[_neuronsCount];
-    _HsForBias = new double[_neuronsCount];
+    _BsForBias = new float[_neuronsCount];
+    _HsForBias = new float[_neuronsCount];
 
     resetHsAndHsForBias();
     randomizeBsAndBsForBias();
@@ -929,9 +733,9 @@ void OpenNNL::trainingIDBD(int samplesCount, double * trainingInputs, double *tr
     delete[] _HsForBias;
 }
 
-void OpenNNL::getOutputs(double * out)
+void OpenNNL::getOutputs(float * out)
 {
-    memcpy(out, _outputs, sizeof(double)*_outputsCount);
+    memcpy(out, _outputs, sizeof(float)*_outputsCount);
 }
 
 void OpenNNL::resetHs()
@@ -954,16 +758,16 @@ void OpenNNL::resetHsAndHsForBias()
 
 void OpenNNL::randomizeBs()
 {
-    initialize_random_generator();
+    /*initialize_random_generator();
     for(int i=0;i<_weightsCount;i++)
-        _Bs[i] = unified_random();
+        _Bs[i] = unified_random();*/
 }
 
 void OpenNNL::randomizeBsForBias()
 {
-    initialize_random_generator();
+    /*initialize_random_generator();
     for(int i=0;i<_neuronsCount;i++)
-        _BsForBias[i] = unified_random();
+        _BsForBias[i] = unified_random();*/
 }
 
 void OpenNNL::randomizeBsAndBsForBias()
