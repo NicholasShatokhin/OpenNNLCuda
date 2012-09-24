@@ -32,6 +32,26 @@ __global__ void calculateOut(float * outputs, float * inputs, int inputsCount, i
     }
 }
 
+__global__ void initializeRandomGenerator ( curandState * state, unsigned long seed, int count )
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(idx < count)
+        curand_init ( seed, idx, 0, &state[idx] );
+}
+
+__global__ void generateRandomArray( curandState* globalState, float * randomArray, int count )
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx < count)
+    {
+        curandState localState = globalState[idx];
+        float RANDOM = curand_uniform( &localState )*2-1;
+        randomArray[idx] = RANDOM;
+        globalState[idx] = localState;
+    }
+}
+
 #define cudaCall(x) { if((x) != cudaSuccess) { \
     printf("Error at %s:%d -- %s\n",__FILE__,__LINE__, cudaGetErrorString(x)); \
     exit(EXIT_FAILURE);}}
@@ -234,6 +254,18 @@ __global__ void _cudaRandomizeWeights(float * neuronsInputsWeights, int weightsC
 
 void OpenNNL::randomizeWeights()
 {
+    dim3 threads = dim3(256, 1);
+    int blocksCount = floor(_weightsCount / threads.x) + 1;
+    dim3 blocks  = dim3(blocksCount, 1);
+    curandState* devStates;
+
+    cudaCall(cudaMalloc ( &devStates, _weightsCount*sizeof( curandState ) ));
+
+    initializeRandomGenerator <<<blocks, threads>>> ( devStates, time(NULL), _weightsCount );
+
+    generateRandomArray <<<blocks, threads>>> ( devStates, _neuronsInputsWeights, _weightsCount );
+
+    cudaCall(cudaFree(devStates));
     /*initialize_random_generator();
 
     int inputs = _inputsCount;
@@ -252,6 +284,18 @@ void OpenNNL::randomizeWeights()
 
 void OpenNNL::randomizeBiases()
 {
+    dim3 threads = dim3(256, 1);
+    int blocksCount = floor(_neuronsCount / threads.x) + 1;
+    dim3 blocks  = dim3(blocksCount, 1);
+    curandState* devStates;
+
+    cudaCall(cudaMalloc ( &devStates, _neuronsCount*sizeof( curandState ) ));
+
+    initializeRandomGenerator <<<blocks, threads>>> ( devStates, time(NULL), _neuronsCount );
+
+    generateRandomArray <<<blocks, threads>>> ( devStates, _neuronsBiases, _neuronsCount );
+
+    cudaCall(cudaFree(devStates));
     /*initialize_random_generator();
 
     int inputs = _inputsCount;
