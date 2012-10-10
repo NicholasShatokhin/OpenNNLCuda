@@ -242,13 +242,45 @@ inline float OpenNNL::getOutput(int index)
     return _outputs[index];
 }
 
-__global__ void _cudaRandomizeWeights(float * neuronsInputsWeights, int weightsCount, int inputsCount)
+__global__ void weightsMultiplicationBySqrtFromInputs(float * neuronsInputsWeights, int * inputsInCurrentLayer, int * inputsInPreviousLayers, int weightsCount, int layersCount)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(idx < weightsCount)
     {
-        neuronsInputsWeights[idx] = /*unified_random() /*/ sqrtf(inputsCount);
+        // searching layer's number. ugly method -- TODO: write better
+        int layer = layersCount-1;
+        for(int i=0;i<layersCount-1;i++)
+        {
+            if(idx >= inputsInPreviousLayers[i] && idx < inputsInPreviousLayers[i+1])
+            {
+                layer = i;
+                break;
+            }
+        }
+
+        neuronsInputsWeights[idx] /= sqrtf(inputsInCurrentLayer[layer]);
+    }
+}
+
+__global__ void biasesMultiplicationBySqrtFromInputs(float * neuronsBiases, int * inputsInCurrentLayer, int * neuronsInPreviousLayers, int neuronsCount, int layersCount)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(idx < neuronsCount)
+    {
+        // searching layer's number. ugly method -- TODO: write better
+        int layer = layersCount-1;
+        for(int i=0;i<layersCount-1;i++)
+        {
+            if(idx >= neuronsInPreviousLayers[i] && idx < neuronsInPreviousLayers[i+1])
+            {
+                layer = i;
+                break;
+            }
+        }
+
+        neuronsBiases[idx] /= sqrtf(inputsInCurrentLayer[layer]);
     }
 }
 
@@ -264,6 +296,8 @@ void OpenNNL::randomizeWeights()
     initializeRandomGenerator <<<blocks, threads>>> ( devStates, time(NULL), _weightsCount );
 
     generateRandomArray <<<blocks, threads>>> ( devStates, _neuronsInputsWeights, _weightsCount );
+
+    weightsMultiplicationBySqrtFromInputs <<< blocks, threads >>> (_neuronsInputsWeights, _inputsInCurrentLayer, _inputsInPreviousLayers, _weightsCount, _layersCount);
 
     cudaCall(cudaFree(devStates));
     /*initialize_random_generator();
@@ -294,6 +328,8 @@ void OpenNNL::randomizeBiases()
     initializeRandomGenerator <<<blocks, threads>>> ( devStates, time(NULL), _neuronsCount );
 
     generateRandomArray <<<blocks, threads>>> ( devStates, _neuronsBiases, _neuronsCount );
+
+    biasesMultiplicationBySqrtFromInputs <<< blocks, threads >>> (_neuronsBiases, _inputsInCurrentLayer, _neuronsInPreviousLayers, _neuronsCount, _layersCount);
 
     cudaCall(cudaFree(devStates));
     /*initialize_random_generator();

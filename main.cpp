@@ -77,6 +77,12 @@ int main()
     cout << "Creating object..." << endl;
     OpenNNL * opennnl = new OpenNNL(INPUTS_COUNT, LAYERS_COUNT, neuronsInLayers);
 
+    cout << "Randomizing weights..." << endl;
+    opennnl->randomizeWeights();
+
+    cout << "Randomizing biases..." << endl;
+    opennnl->randomizeBiases();
+
     cout << "Deleting object..." << endl;
     delete opennnl;
 
