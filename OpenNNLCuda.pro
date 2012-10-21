@@ -10,7 +10,8 @@ OTHER_FILES += opennnl.cu
 
 HEADERS += \
     opennnl.h \
-    utils.h
+    utils.h \
+    cuda_helper.h
 
 INCLUDEPATH += /usr/local/cuda/include
 

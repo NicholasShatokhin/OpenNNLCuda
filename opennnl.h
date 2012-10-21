@@ -11,6 +11,7 @@
 #include <curand_kernel.h>
 
 #include "utils.h"
+#include "cuda_helper.h"
 
 using namespace std;
 
@@ -21,14 +22,16 @@ class OpenNNL
 
     private:
         int _layersCount; // num of layers
-        int * _neuronsPerLayerCount; // device // num of neurons in each layer
+        int * _neuronsPerLayerCount; // num of neurons in each layer
+        int * _deviceNeuronsPerLayerCount; // device // num of neurons in each layer
         int _inputsCount;    // num of network inputs
         int _weightsCount;   // num of weights of all neurons in network
         int _neuronsCount;   // num of all neurons in network (and also num of biases count)
         int _outputsCount;   // num of network outputs
 
         int * _neuronsInPreviousLayers; // device // the sum of the number of neurons in previous layers
-        int * _inputsInPreviousLayers; // device // the sum of the inputs of each neuron in previous layers
+        int * _inputsInPreviousLayers; // the sum of the inputs of each neuron in previous layers
+        int * _deviceInputsInPreviousLayers; // device // the sum of the inputs of each neuron in previous layers
         int * _inputsInCurrentLayer; // device // the inputs of each neuron in current layer (not sum)
 
         float * _neuronsInputsWeights; // device // weights of neurons inputs
@@ -89,7 +92,7 @@ class OpenNNL
         inline float activation(float x, TActivationKind kind=SIG);
         inline float activation_derivative(float x, TActivationKind kind=SIG);
 
-        float * _calculateWorker(float * inputs); // worker for calculation network outputs
+        float * _calculateWorker(float * inputs = NULL); // worker for calculation network outputs
         float _changeWeightsByBP(float * trainingInputs, float * trainingOutputs, float speed, float sample_weight=1.0);
         float _changeWeightsByIDBD(float * trainingInputs, float *trainingOutputs, float speed, float sample_weight=1.0);
 

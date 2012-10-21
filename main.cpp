@@ -17,7 +17,7 @@ int main()
     const int TEST_INPUTS_COUNT = 9;
 
     int neuronsInLayers[LAYERS_COUNT] = {3, 10, 10, 2};
-    double trainingInputs[TRAINING_SAMPLES_COUNT*INPUTS_COUNT] = {1.0, 	1.0, 	1.0,
+    float trainingInputs[TRAINING_SAMPLES_COUNT*INPUTS_COUNT] = {1.0, 	1.0, 	1.0,
                                                                   0.5, 	1.0, 	1.0,
                                                                   1.0, 	1.0, 	0.5,
                                                                   1.0, 	0.5, 	1.0,
@@ -38,7 +38,7 @@ int main()
                                                                   0.6, 	0.3, 	0.0,
                                                                   0.2, 	0.3, 	0.4,
                                                                   0.4, 	0.3, 	0.2 };
-    double trainingOutputs[TRAINING_SAMPLES_COUNT*OUTPUTS_COUNT] = {
+    float trainingOutputs[TRAINING_SAMPLES_COUNT*OUTPUTS_COUNT] = {
                                                                            1.0, 	0.5,
                                                                            0.6, 	0.7,
                                                                            0.6, 	0.3,
@@ -62,7 +62,7 @@ int main()
                                                                            0.4, 	0.1
                                                                    };
 
-    double testInputs[TEST_INPUTS_COUNT*INPUTS_COUNT] = {
+    float testInputs[TEST_INPUTS_COUNT*INPUTS_COUNT] = {
         0.0, 0.0, 0.0,
         1.0, 0.0, 1.0,
         0.0, 1.0, 0.5,
@@ -82,6 +82,27 @@ int main()
 
     cout << "Randomizing biases..." << endl;
     opennnl->randomizeBiases();
+
+    cout << "Calculations..." << endl;
+
+    float inputs[INPUTS_COUNT];
+    float outputs[OUTPUTS_COUNT];
+
+    for(int i=0;i<TEST_INPUTS_COUNT;i++)
+    {
+        memcpy(inputs, testInputs+i*INPUTS_COUNT, INPUTS_COUNT*sizeof(float));
+
+        opennnl->calculate(inputs);
+        opennnl->getOutputs(outputs);
+
+        cout << "test sample #" << i+1 << ":" << endl;
+        for(int j=0;j<INPUTS_COUNT;j++)
+            cout << inputs[j] << " ";
+        cout << " --> ";
+        for(int j=0;j<OUTPUTS_COUNT;j++)
+            cout << outputs[j] << " ";
+        cout << endl;
+    }
 
     cout << "Deleting object..." << endl;
     delete opennnl;
