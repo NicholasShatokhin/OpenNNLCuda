@@ -545,14 +545,32 @@ __global__ void calculateNeuronsOutputsAndDerivatives()
 
 }
 
-__global__ void calculateLocalGradientsForLastLayer()
+__global__ void calculateLocalGradientsForLastLayer(localGradients, trainingOutputs, outputs, derivatives, sample_weight, neuronsCount)
 {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
+    if(idx < neuronsCount)
+    {
+        current_error = trainingOutputs[idx] - outputs[indexByLayerAndNeuron(_layersCount-1, idx)];
+        localGradients[indexByLayerAndNeuron(_layersCount-1, idx)] = current_error * sample_weight * derivatives[indexByLayerAndNeuron(_layersCount-1, idx)];
+    }
+
+    //error += current_error * current_error;
 }
 
 __global__ void calculateLocalGradientsForAnotherLayers()
 {
 
+    localGradients[indexByLayerAndNeuron(i, j)] = 0;
+
+    // this to Kernel, then reduce localGradients.
+    for(int k=0;k<_deviceNeuronsPerLayerCount[i+1];k++)
+    {
+        localGradients[indexByLayerAndNeuron(i, j)] += _neuronsInputsWeights[indexByLayerNeuronAndInput(i+1, k, j)]
+                                                        * localGradients[indexByLayerAndNeuron(i+1, k)];
+    }
+
+    localGradients[indexByLayerAndNeuron(i, j)] *= derivatives[indexByLayerAndNeuron(i, j)];
 }
 
 __global__ void changeWeightsForFirstLayer()
