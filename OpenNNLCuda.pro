@@ -13,24 +13,43 @@ HEADERS += \
     utils.h \
     cuda_helper.h
 
-INCLUDEPATH += /usr/local/cuda/include
-
-CUDA_DIR = /usr/local/cuda
 
 CUDA_ARCH = sm_11
-
-NVCCFLAGS = --compiler-options -fno-strict-aliasing -use_fast_math --ptxas-options=-v
-
-QMAKE_LIBDIR += $$CUDA_DIR/lib
 
 LIBS += -lcudart
 
 CUDA_INC = $$join(INCLUDEPATH,' -I','-I',' ')
 
+NVCCFLAGS = --compiler-options -fno-strict-aliasing -use_fast_math --ptxas-options=-v
+
+unix {
+    CUDA_DIR = /usr/local/cuda
+    INCLUDEPATH += /usr/local/cuda/include
+    QMAKE_LIBDIR += $$CUDA_DIR/lib
+
+    LIBS += -lcudart
+
+cuda.commands = $$CUDA_DIR/bin/nvcc -g -G -arch=$$CUDA_ARCH -c $$NVCCFLAGS $$CUDA_INC $$LIBS  ${QMAKE_FILE_NAME} -o ${QMAKE_FILE_OUT}
+}
+
+win32 {
+  CUDA_DIR = $(CUDA_PATH)
+  INCLUDEPATH += $(CUDA_PATH)/include
+  QMAKE_LIBDIR += $(CUDA_PATH)/lib/x64
+
+cuda.commands = nvcc -g -G -arch=$$CUDA_ARCH -c $$NVCCFLAGS $$CUDA_INC
+}
+
+
+
+
+
+
+
 cuda.input = CUDA_SOURCES
 cuda.output = ${OBJECTS_DIR}${QMAKE_FILE_BASE}_cuda.o
 
-cuda.commands = $$CUDA_DIR/bin/nvcc -g -G -arch=$$CUDA_ARCH -c $$NVCCFLAGS $$CUDA_INC $$LIBS  ${QMAKE_FILE_NAME} -o ${QMAKE_FILE_OUT}
+#cuda.commands = $$CUDA_DIR/bin/nvcc -g -G -arch=$$CUDA_ARCH -c $$NVCCFLAGS $$CUDA_INC $$LIBS  ${QMAKE_FILE_NAME} -o ${QMAKE_FILE_OUT}
 
 cuda.dependency_type = TYPE_C
 cuda.depend_command = $$CUDA_DIR/bin/nvcc -g -G -M $$CUDA_INC $$NVCCFLAGS   ${QMAKE_FILE_NAME}

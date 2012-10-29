@@ -55,7 +55,7 @@ class OpenNNL
         inline float sigmoid(float output, float a);
         inline float sigmoid_simple(float output);*/
 
-        void calculateNeuronsOutputsAndDerivatives(float * inputs=NULL, float * outputs=NULL, float * derivatives=NULL); // calculates neurons outputs and derivatives for training functions
+        void calculateNeuronsOutputsAndDerivatives(float * deviceInputs=NULL, float * deviceOutputs=NULL, float * deviceDerivatives=NULL); // calculates neurons outputs and derivatives for training functions
 
         inline void setB(int layer, int neuron, int input, float value);  // set B for current neuron's input
         inline float getB(int layer, int neuron, int input);  // get B of current neuron's input
@@ -89,8 +89,8 @@ class OpenNNL
         inline int indexByLayerAndNeuron(int layer, int neuron);
         inline int indexByLayerNeuronAndInput(int layer, int neuron, int input);
 
-        inline float activation(float x, TActivationKind kind=SIG);
-        inline float activation_derivative(float x, TActivationKind kind=SIG);
+        //inline float activation(float x, TActivationKind kind=SIG);
+        //inline float activation_derivative(float x, TActivationKind kind=SIG);
 
         float * _calculateWorker(float * inputs = NULL); // worker for calculation network outputs
         float _changeWeightsByBP(float * trainingInputs, float * trainingOutputs, float speed, float sample_weight=1.0);
