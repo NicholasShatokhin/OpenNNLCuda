@@ -588,15 +588,49 @@ __global__ void calculateLocalGradientsForAnotherLayers(float * localGradients, 
     }
 }
 
-/*__global__ void changeWeightsForFirstLayer()
+__global__ void changeWeightsForFirstLayer(float * neuronsInputsWeights, float * trainingInputs, float * localGradients, float speed, int inputsCount, int inputsInLayer)
 {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
+    if(idx < inputsInLayer)
+    {
+        float deltaWeight = speed * localGradients[(int) (idx / inputsCount)] * trainingInputs[idx % inputsCount];
+        float temp = neuronsInputsWeights[idx] + deltaWeight;
+        neuronsInputsWeights[idx] = temp;
+
+        // neuronsBiases[(int) (idx / inputsCount)] += speed * localGradients[(int) (idx / inputsCount)] * (-1);
+    }
 }
 
-__global__ void changeWeightsForAnotherLayers()
+__global__ void changeBiasesForFirstLayer(float * neuronsBiases, float * localGradients, float speed, int neuronsCount)
 {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-}*/
+    if(idx < neuronsCount)
+    {
+        float deltaBias = speed * localGradients[idx];
+        float temp = neuronsBiases[idx] - deltaBias;
+        neuronsBiases[idx] = temp;
+    }
+}
+
+__global__ void changeWeightsForAnotherLayers(float * neuronsInputsWeights, float * localGradients, float * outputs, float speed)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // i<_layersCount
+    // j<_deviceNeuronsPerLayerCount[i]
+    // k<_deviceNeuronsPerLayerCount[i-1]
+
+    //  _neuronsInPreviousLayers[layer] + neuron;
+
+    // idx % (_deviceNeuronsPerLayerCount[i] * _deviceNeuronsPerLayerCount[i-1])
+
+
+    if(idx < inputsCount)
+    {
+        neuronsInputsWeights[indexByLayerNeuronAndInput(i, j, k)] += speed * localGradients[indexByLayerAndNeuron(i, j)] * outputs[indexByLayerAndNeuron(i-1, k)];
+    }
+}
 
 float OpenNNL::_changeWeightsByBP(float * trainingInputs, float *trainingOutputs, float speed, float sample_weight)
 {
@@ -658,7 +692,7 @@ float OpenNNL::_changeWeightsByBP(float * trainingInputs, float *trainingOutputs
     }
 
     // changeWeightsForFirstLayer
-    for(int j=0;j<_deviceNeuronsPerLayerCount[0];j++) // this and next cicle for cuda kernel (j*k threads)
+    for(int j=0;j<_neuronsPerLayerCount[0];j++) // this and next cicle for cuda kernel (j*k threads)
     {
         for(int k=0;k<_inputsCount;k++)
         {
