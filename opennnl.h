@@ -29,10 +29,12 @@ class OpenNNL
         int _neuronsCount;   // num of all neurons in network (and also num of biases count)
         int _outputsCount;   // num of network outputs
 
-        int * _neuronsInPreviousLayers; // device // the sum of the number of neurons in previous layers
+        int * _neuronsInPreviousLayers; // the sum of the number of neurons in previous layers
+        int * _deviceNeuronsInPreviousLayers; // device
         int * _inputsInPreviousLayers; // the sum of the inputs of each neuron in previous layers
         int * _deviceInputsInPreviousLayers; // device // the sum of the inputs of each neuron in previous layers
-        int * _inputsInCurrentLayer; // device // the inputs of each neuron in current layer (not sum)
+        int * _inputsInCurrentLayer; // the inputs of each neuron in current layer (not sum)
+        int * _deviceInputsInCurrentLayer; // device
 
         float * _neuronsInputsWeights; // device // weights of neurons inputs
         float * _neuronsBiases; // device // biases of neurons

@@ -74,14 +74,31 @@ int main()
         1.0, 1.0, 1.0
     };
 
+    float weights[159];
+    float biases[25];
+
+    for(int i=0;i<159;i++)
+        weights[i] = 0;
+
+    for(int i=0;i<25;i++)
+        biases[i] = 0;
+
     cout << "Creating object..." << endl;
     OpenNNL * opennnl = new OpenNNL(INPUTS_COUNT, LAYERS_COUNT, neuronsInLayers);
 
     cout << "Randomizing weights..." << endl;
-    opennnl->randomizeWeights();
+    //opennnl->randomizeWeights();
+    opennnl->setWeights(weights);
 
     cout << "Randomizing biases..." << endl;
-    opennnl->randomizeBiases();
+    //opennnl->randomizeBiases();
+    opennnl->setBiases(biases);
+
+    cout << "Training..." << endl;
+
+    opennnl->trainingBP(TRAINING_SAMPLES_COUNT, trainingInputs, trainingOutputs, 1, SPEED, ERROR);
+
+    opennnl->printDebugInfo();
 
     cout << "Calculations..." << endl;
 
