@@ -2,19 +2,25 @@ TEMPLATE = app
 CONFIG += console
 CONFIG -= qt
 
-SOURCES += main.cpp
+SOURCES += main.cpp \
+    mnistfile.cpp
 
 CUDA_SOURCES += opennnl.cu
 
-OTHER_FILES += opennnl.cu
+OTHER_FILES += opennnl.cu \
+    data/mnist/train-labels.idx1-ubyte \
+    data/mnist/train-images.idx3-ubyte \
+    data/mnist/t10k-labels.idx1-ubyte \
+    data/mnist/t10k-images.idx3-ubyte
 
 HEADERS += \
     opennnl.h \
     utils.h \
-    cuda_helper.h
+    cuda_helper.h \
+    mnistfile.h
 
 
-CUDA_ARCH = sm_11
+CUDA_ARCH = sm_20
 
 LIBS += -lcudart
 

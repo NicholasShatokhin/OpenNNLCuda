@@ -3,8 +3,8 @@
 /*****************************************************************************/
 /* Вычислить активационную функцию y(x) = 2x / (1 + abs(x)). */
 /*****************************************************************************/
-//inline float OpenNNL::activation(float x, TActivationKind kind)
-__device__ float activation(float x)
+//inline double OpenNNL::activation(double x, TActivationKind kind)
+__device__ double activation(double x)
 {
     return (2.0 * x / (1 + fabs(x)));
 }
@@ -16,14 +16,14 @@ __device__ float activation(float x)
     dx     (1 + abs(x))^2
 */
 /*****************************************************************************/
-//inline float OpenNNL::activation_derivative(float x, TActivationKind kind)
-__device__ float activation_derivative(float x)
+//inline double OpenNNL::activation_derivative(double x, TActivationKind kind)
+__device__ double activation_derivative(double x)
 {
-    float temp = 1.0 + fabs(x);
+    double temp = 1.0 + fabs(x);
     return (2.0 / (temp * temp));
 }
 
-__global__ void testKernel(float * output, int count)
+__global__ void testKernel(double * output, int count)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -33,7 +33,7 @@ __global__ void testKernel(float * output, int count)
     }
 }
 
-__global__ void weighting(float * outputs, float * inputs, float * weights, int start, int inputsCount, int neuronsCount)
+__global__ void weighting(double * outputs, double * inputs, double * weights, int start, int inputsCount, int neuronsCount)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -43,18 +43,20 @@ __global__ void weighting(float * outputs, float * inputs, float * weights, int 
     }
 }
 
-__global__ void calculateOut(float * outputs, float * inputs, int inputsCount, int neuronsCount)
+__global__ void calculateOut(double * outputs, double * inputs, double * biases, int inputsCount, int neuronsCount, int neuronsInPreviousLayers)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(idx < neuronsCount)
     {
-        float temp = 0;
+        double temp = 0;
 
         for(int k=0;k<inputsCount;k++)
         {
             temp += inputs[idx*inputsCount+k];
         }
+
+        temp -= biases[neuronsInPreviousLayers+idx];
 
         outputs[idx] = activation(temp);
     }
@@ -68,13 +70,13 @@ __global__ void initializeRandomGenerator ( curandState * state, unsigned long s
         curand_init ( seed, idx, 0, &state[idx] );
 }
 
-__global__ void generateRandomArray( curandState* globalState, float * randomArray, int count )
+__global__ void generateRandomArray( curandState* globalState, double * randomArray, int count )
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if(idx < count)
     {
         curandState localState = globalState[idx];
-        float RANDOM = curand_uniform( &localState )*2-1;
+        double RANDOM = curand_uniform( &localState )*2-1;
         randomArray[idx] = RANDOM;
         globalState[idx] = localState;
     }
@@ -98,9 +100,9 @@ OpenNNL::OpenNNL(const int inputsCount, const int layersCount, const int * neuro
     cudaCall(cudaMalloc(&_deviceInputsInPreviousLayers, _layersCount*sizeof(int)));
     cudaCall(cudaMalloc(&_deviceInputsInCurrentLayer, _layersCount*sizeof(int)));
 
-    _inputs = new float[_inputsCount];
+    _inputs = new double[_inputsCount];
 
-    //cudaCall(cudaMalloc(&_deviceInputs, _inputsCount*sizeof(float)));
+    //cudaCall(cudaMalloc(&_deviceInputs, _inputsCount*sizeof(double)));
 
     int inputs = _inputsCount;
 
@@ -118,9 +120,9 @@ OpenNNL::OpenNNL(const int inputsCount, const int layersCount, const int * neuro
     }
 
     _outputsCount = inputs;
-    _outputs = new float[_outputsCount];
+    _outputs = new double[_outputsCount];
 
-    cudaCall(cudaMalloc(&_deviceOutputs, _outputsCount*sizeof(float)));
+    cudaCall(cudaMalloc(&_deviceOutputs, _outputsCount*sizeof(double)));
 
     cudaCall(cudaMemcpy(_deviceNeuronsPerLayerCount, _neuronsPerLayerCount, _layersCount*sizeof(int), cudaMemcpyHostToDevice));
     cudaCall(cudaMemcpy(_deviceNeuronsInPreviousLayers, _neuronsInPreviousLayers, _layersCount*sizeof(int), cudaMemcpyHostToDevice));
@@ -129,12 +131,12 @@ OpenNNL::OpenNNL(const int inputsCount, const int layersCount, const int * neuro
 
     //delete _hostNeuronsInPreviousLayers;
     //delete _hostInputsInCurrentLayer;
-    //_derivatives = new float[_neuronsCount];
+    //_derivatives = new double[_neuronsCount];
 
-    //_neuronsInputsWeights = new float[_weightsCount];
-    //_neuronsBiases = new float[_neuronsCount];
-    cudaCall(cudaMalloc(&_neuronsInputsWeights, _weightsCount*sizeof(float)));
-    cudaCall(cudaMalloc(&_neuronsBiases, _neuronsCount*sizeof(float)));
+    //_neuronsInputsWeights = new double[_weightsCount];
+    //_neuronsBiases = new double[_neuronsCount];
+    cudaCall(cudaMalloc(&_neuronsInputsWeights, _weightsCount*sizeof(double)));
+    cudaCall(cudaMalloc(&_neuronsBiases, _neuronsCount*sizeof(double)));
 }
 
 OpenNNL::~OpenNNL()
@@ -188,87 +190,87 @@ inline int OpenNNL::indexByLayerNeuronAndInput(int layer, int neuron, int input)
     return _inputsInPreviousLayers[layer] + neuron*_inputsInCurrentLayer[layer] + input;
 }
 
-inline void OpenNNL::setB(int layer, int neuron, int input, float value)
+inline void OpenNNL::setB(int layer, int neuron, int input, double value)
 {
     _Bs[indexByLayerNeuronAndInput(layer, neuron, input)] = value;
 }
 
-inline float OpenNNL::getB(int layer, int neuron, int input)
+inline double OpenNNL::getB(int layer, int neuron, int input)
 {
     return _Bs[indexByLayerNeuronAndInput(layer, neuron, input)];
 }
 
-inline void OpenNNL::setBForBias(int layer, int neuron, float value)
+inline void OpenNNL::setBForBias(int layer, int neuron, double value)
 {
     _BsForBias[indexByLayerAndNeuron(layer, neuron)] = value;
 }
 
-inline float OpenNNL::getBForBias(int layer, int neuron)
+inline double OpenNNL::getBForBias(int layer, int neuron)
 {
     return _BsForBias[indexByLayerAndNeuron(layer, neuron)];
 }
 
-inline void OpenNNL::setH(int layer, int neuron, int input, float value)
+inline void OpenNNL::setH(int layer, int neuron, int input, double value)
 {
     _Hs[indexByLayerNeuronAndInput(layer, neuron, input)] = value;
 }
 
-inline float OpenNNL::getH(int layer, int neuron, int input)
+inline double OpenNNL::getH(int layer, int neuron, int input)
 {
     return _Hs[indexByLayerNeuronAndInput(layer, neuron, input)];
 }
 
-inline void OpenNNL::setHForBias(int layer, int neuron, float value)
+inline void OpenNNL::setHForBias(int layer, int neuron, double value)
 {
     _HsForBias[indexByLayerAndNeuron(layer, neuron)] = value;
 }
 
-inline float OpenNNL::getHForBias(int layer, int neuron)
+inline double OpenNNL::getHForBias(int layer, int neuron)
 {
     return _HsForBias[indexByLayerAndNeuron(layer, neuron)];
 }
 
-inline void OpenNNL::setWeight(int layer, int neuron, int input, float value)
+inline void OpenNNL::setWeight(int layer, int neuron, int input, double value)
 {
     _neuronsInputsWeights[indexByLayerNeuronAndInput(layer, neuron, input)] = value;
 }
 
-inline float OpenNNL::getWeight(int layer, int neuron, int input)
+inline double OpenNNL::getWeight(int layer, int neuron, int input)
 {
     return _neuronsInputsWeights[indexByLayerNeuronAndInput(layer, neuron, input)];
 }
 
-inline void OpenNNL::setBias(int layer, int neuron, float value)
+inline void OpenNNL::setBias(int layer, int neuron, double value)
 {
     _neuronsBiases[indexByLayerAndNeuron(layer, neuron)] = value;
 }
 
-inline float OpenNNL::getBias(int layer, int neuron)
+inline double OpenNNL::getBias(int layer, int neuron)
 {
     return _neuronsBiases[indexByLayerAndNeuron(layer, neuron)];
 }
 
-/*inline void OpenNNL::setDerivative(int layer, int neuron, float value)
+/*inline void OpenNNL::setDerivative(int layer, int neuron, double value)
 {
     _derivatives[indexByLayerAndNeuron(layer, neuron)] = value;
 }
 
-inline float OpenNNL::getDerivative(int layer, int neuron)
+inline double OpenNNL::getDerivative(int layer, int neuron)
 {
     return _derivatives[indexByLayerAndNeuron(layer, neuron)];
 }*/
 
-inline void OpenNNL::setInput(int index, float value)
+inline void OpenNNL::setInput(int index, double value)
 {
     _inputs[index] = value;
 }
 
-inline float OpenNNL::getOutput(int index)
+inline double OpenNNL::getOutput(int index)
 {
     return _outputs[index];
 }
 
-__global__ void weightsMultiplicationBySqrtFromInputs(float * neuronsInputsWeights, int * inputsInCurrentLayer, int * inputsInPreviousLayers, int weightsCount, int layersCount)
+__global__ void weightsMultiplicationBySqrtFromInputs(double * neuronsInputsWeights, int * inputsInCurrentLayer, int * inputsInPreviousLayers, int weightsCount, int layersCount)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -289,7 +291,7 @@ __global__ void weightsMultiplicationBySqrtFromInputs(float * neuronsInputsWeigh
     }
 }
 
-__global__ void biasesMultiplicationBySqrtFromInputs(float * neuronsBiases, int * inputsInCurrentLayer, int * neuronsInPreviousLayers, int neuronsCount, int layersCount)
+__global__ void biasesMultiplicationBySqrtFromInputs(double * neuronsBiases, int * inputsInCurrentLayer, int * neuronsInPreviousLayers, int neuronsCount, int layersCount)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -312,8 +314,8 @@ __global__ void biasesMultiplicationBySqrtFromInputs(float * neuronsBiases, int 
 
 void OpenNNL::randomizeWeights()
 {
-    dim3 threads = dim3(256, 1);
-    int blocksCount = floor((float)_weightsCount / threads.x) + 1;
+    dim3 threads = dim3(BLOCK_SIZE, 1);
+    int blocksCount = floor((double)_weightsCount / threads.x) + 1;
     dim3 blocks  = dim3(blocksCount, 1);
     curandState* devStates;
 
@@ -345,7 +347,7 @@ void OpenNNL::randomizeWeights()
 void OpenNNL::randomizeBiases()
 {
     dim3 threads = dim3(256, 1);
-    int blocksCount = floor((float) _neuronsCount / threads.x) + 1;
+    int blocksCount = floor((double) _neuronsCount / threads.x) + 1;
     dim3 blocks  = dim3(blocksCount, 1);
     curandState* devStates;
 
@@ -379,60 +381,59 @@ void OpenNNL::randomizeWeightsAndBiases()
     this->randomizeBiases();
 }
 
-float * OpenNNL::_calculateWorker(float *inpt)
+double * OpenNNL::_calculateWorker(double *inpt)
 {   
     int inputsCount = _inputsCount;
 
-    float * deviceTemp;
-    float *deviceInputs;
+    double * deviceTemp;
+    double *deviceInputs;
 
-    cudaCall(cudaMalloc ( (void**)&deviceInputs, inputsCount*sizeof(float) ));
+    cudaCall(cudaMalloc ( (void**)&deviceInputs, inputsCount*sizeof(double) ));
 
-    cudaCall(cudaMemcpy      ( deviceInputs, inpt, inputsCount*sizeof(float), cudaMemcpyHostToDevice ));
+    cudaCall(cudaMemcpy      ( deviceInputs, inpt, inputsCount*sizeof(double), cudaMemcpyHostToDevice ));
 
     for(int i=0;i<_layersCount;i++)
     {
-        //cudaCall(cudaMemoryAllocate((void***)&deviceTemp, sizeof(float), _neuronsPerLayerCount[i]*inputsCount));
-        cudaCall(cudaMalloc((void**)&deviceTemp, _neuronsPerLayerCount[i]*inputsCount*sizeof(float)));
+        //cudaCall(cudaMemoryAllocate((void***)&deviceTemp, sizeof(double), _neuronsPerLayerCount[i]*inputsCount));
+        cudaCall(cudaMalloc((void**)&deviceTemp, _neuronsPerLayerCount[i]*inputsCount*sizeof(double)));
 
         dim3 threadsMul = dim3(512, 1);
-        int blocksCount = floor((float) _neuronsPerLayerCount[i]*inputsCount / threadsMul.x) + 1;
+        int blocksCount = floor((double) _neuronsPerLayerCount[i]*inputsCount / threadsMul.x) + 1;
         dim3 blocksMul  = dim3(blocksCount, 1);
 
         weighting<<<blocksMul, threadsMul>>>(deviceTemp, deviceInputs, _neuronsInputsWeights, _inputsInPreviousLayers[i], inputsCount, _neuronsPerLayerCount[i]);
 
         cudaCall(cudaFree(deviceInputs));
 
-        //cudaCall(cudaMemoryAllocate((void ***)&deviceInputs, sizeof(float), _neuronsPerLayerCount[i]));
-        cudaCall(cudaMalloc((void**)&deviceInputs, _neuronsPerLayerCount[i]*sizeof(float)));
+        //cudaCall(cudaMemoryAllocate((void ***)&deviceInputs, sizeof(double), _neuronsPerLayerCount[i]));
+        cudaCall(cudaMalloc((void**)&deviceInputs, _neuronsPerLayerCount[i]*sizeof(double)));
 
         dim3 threadsSum = dim3(512, 1);
-        blocksCount = floor((float) _neuronsPerLayerCount[i] / threadsSum.x) + 1;
+        blocksCount = floor((double) _neuronsPerLayerCount[i] / threadsSum.x) + 1;
         dim3 blocksSum  = dim3(blocksCount, 1);
 
-        calculateOut<<<blocksSum, threadsSum>>>(deviceInputs, deviceTemp, inputsCount, _neuronsPerLayerCount[i]);
-
+        calculateOut <<<blocksSum, threadsSum>>> (deviceInputs, deviceTemp, _neuronsBiases, inputsCount, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i]);
 
         inputsCount = _neuronsPerLayerCount[i];
 
         cudaCall(cudaFree(deviceTemp));
     }
 
-    cudaCall(cudaMemcpy      ( _outputs, deviceInputs, inputsCount*sizeof(float), cudaMemcpyDeviceToHost ));
+    cudaCall(cudaMemcpy      ( _outputs, deviceInputs, inputsCount*sizeof(double), cudaMemcpyDeviceToHost ));
     cudaCall(cudaFree(deviceInputs));
 
     return _outputs;
     /*int inputsCount;
-    float * temp;
-    float * inputs = new float[_inputsCount];
+    double * temp;
+    double * inputs = new double[_inputsCount];
 
-    memcpy(inputs, inpt, sizeof(float)*_inputsCount);
+    memcpy(inputs, inpt, sizeof(double)*_inputsCount);
 
     inputsCount = _inputsCount;
 
     for(int i=0;i<_layersCount;i++)
     {
-        temp = new float[_deviceNeuronsPerLayerCount[i]*inputsCount];
+        temp = new double[_deviceNeuronsPerLayerCount[i]*inputsCount];
         for(int j=0;j<_deviceNeuronsPerLayerCount[i];j++)
         {
             for(int k=0;k<inputsCount;k++)
@@ -443,7 +444,7 @@ float * OpenNNL::_calculateWorker(float *inpt)
 
         delete[] inputs;
 
-        inputs = new float[_deviceNeuronsPerLayerCount[i]];
+        inputs = new double[_deviceNeuronsPerLayerCount[i]];
 
         for(int j=0;j<_deviceNeuronsPerLayerCount[i];j++)
         {
@@ -464,24 +465,24 @@ float * OpenNNL::_calculateWorker(float *inpt)
         delete[] temp;
     }
 
-    memcpy(_outputs, inputs, sizeof(float)*inputsCount);
+    memcpy(_outputs, inputs, sizeof(double)*inputsCount);
 
     delete[] inputs;
 
     return _outputs;*/
 }
 
-float * OpenNNL::calculate(float *inputs)
+double * OpenNNL::calculate(double *inputs)
 {
     if(inputs)
     {
-        memcpy(_inputs, inputs, _inputsCount*sizeof(float));
+        memcpy(_inputs, inputs, _inputsCount*sizeof(double));
     }
 
     return _calculateWorker(_inputs);
 }
 
-float * OpenNNL::calculateRef(float *inputs)
+double * OpenNNL::calculateRef(double *inputs)
 {
     if(!inputs)
         inputs = _inputs;
@@ -489,13 +490,13 @@ float * OpenNNL::calculateRef(float *inputs)
     return _calculateWorker(inputs);
 }
 
-__global__ void calculateOutputsAndDerivatives(float * outputs, float * derivatives, float * layerOutputs, float * inputs, int inputsCount, int neuronsCount, int neuronsInPreviousLayers)
+__global__ void calculateOutputsAndDerivatives(double * outputs, double * derivatives, double * layerOutputs, double * inputs, double * biases, int inputsCount, int neuronsCount, int neuronsInPreviousLayers)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(idx < neuronsCount)
     {
-        float temp = 0;
+        double temp = 0;
 
         for(int k=0;k<inputsCount;k++)
         {
@@ -504,74 +505,76 @@ __global__ void calculateOutputsAndDerivatives(float * outputs, float * derivati
 
         int neuron = neuronsInPreviousLayers + idx;
 
+        temp -= biases[neuron];
+
         outputs[neuron] = layerOutputs[idx] = activation(temp);
         derivatives[neuron] = activation_derivative(temp);
     }
 }
 
-void OpenNNL::calculateNeuronsOutputsAndDerivatives(float * inputs, float * deviceOutputs, float * deviceDerivatives)
+void OpenNNL::calculateNeuronsOutputsAndDerivatives(double * inputs, double * deviceOutputs, double * deviceDerivatives)
 {
     int inputsCount = _inputsCount;
-    //float * temp;
-    //float * inputs = new float[_inputsCount];
+    //double * temp;
+    //double * inputs = new double[_inputsCount];
 
-    //memcpy(inputs, inpt, sizeof(float)*_inputsCount);
+    //memcpy(inputs, inpt, sizeof(double)*_inputsCount);
 
-    float * deviceTemp;
-    float * deviceInputs;
-    //float * deviceOutputs;
-    //float * deviceDerivatives;
+    double * deviceTemp;
+    double * deviceInputs;
+    //double * deviceOutputs;
+    //double * deviceDerivatives;
 
-    cudaCall(cudaMalloc ( (void**)&deviceInputs, inputsCount*sizeof(float) ));
-    //cudaCall(cudaMalloc ( (void**)&deviceOutputs, _neuronsCount*sizeof(float) ));
-    //cudaCall(cudaMalloc ( (void**)&deviceDerivatives, _neuronsCount*sizeof(float) ));
+    cudaCall(cudaMalloc ( (void**)&deviceInputs, inputsCount*sizeof(double) ));
+    //cudaCall(cudaMalloc ( (void**)&deviceOutputs, _neuronsCount*sizeof(double) ));
+    //cudaCall(cudaMalloc ( (void**)&deviceDerivatives, _neuronsCount*sizeof(double) ));
 
-    cudaCall(cudaMemcpy      ( deviceInputs, inputs, inputsCount*sizeof(float), cudaMemcpyDeviceToDevice ));
+    cudaCall(cudaMemcpy      ( deviceInputs, inputs, inputsCount*sizeof(double), cudaMemcpyDeviceToDevice ));
 
     for(int i=0;i<_layersCount;i++)
     {
-        cudaCall(cudaMalloc((void**)&deviceTemp, _neuronsPerLayerCount[i]*inputsCount*sizeof(float)));
+        cudaCall(cudaMalloc((void**)&deviceTemp, _neuronsPerLayerCount[i]*inputsCount*sizeof(double)));
 
         dim3 threadsMul = dim3(512, 1);
-        int blocksCount = floor((float) _neuronsPerLayerCount[i]*inputsCount / threadsMul.x) + 1;
+        int blocksCount = floor((double) _neuronsPerLayerCount[i]*inputsCount / threadsMul.x) + 1;
         dim3 blocksMul  = dim3(blocksCount, 1);
 
         weighting<<<blocksMul, threadsMul>>>(deviceTemp, deviceInputs, _neuronsInputsWeights, _inputsInPreviousLayers[i], inputsCount, _neuronsPerLayerCount[i]);
 
         cudaCall(cudaFree(deviceInputs));
 
-        cudaCall(cudaMalloc((void**)&deviceInputs, _neuronsPerLayerCount[i]*sizeof(float)));
+        cudaCall(cudaMalloc((void**)&deviceInputs, _neuronsPerLayerCount[i]*sizeof(double)));
 
         dim3 threadsSum = dim3(512, 1);
-        blocksCount = floor((float) _neuronsPerLayerCount[i] / threadsSum.x) + 1;
+        blocksCount = floor((double) _neuronsPerLayerCount[i] / threadsSum.x) + 1;
         dim3 blocksSum  = dim3(blocksCount, 1);
 
-        calculateOutputsAndDerivatives<<<blocksSum, threadsSum>>>(deviceOutputs, deviceDerivatives, deviceInputs, deviceTemp, inputsCount, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i]);
+        calculateOutputsAndDerivatives<<<blocksSum, threadsSum>>>(deviceOutputs, deviceDerivatives, deviceInputs, deviceTemp, _neuronsBiases, inputsCount, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i]);
 
         inputsCount = _neuronsPerLayerCount[i];
 
         cudaCall(cudaFree(deviceTemp));
     }
 
-    //cudaCall(cudaMemcpy      ( outputs, deviceOutputs, inputsCount*sizeof(float), cudaMemcpyDeviceToHost ));
-    //cudaCall(cudaMemcpy      ( derivatives, deviceDerivatives, inputsCount*sizeof(float), cudaMemcpyDeviceToHost ));
+    //cudaCall(cudaMemcpy      ( outputs, deviceOutputs, inputsCount*sizeof(double), cudaMemcpyDeviceToHost ));
+    //cudaCall(cudaMemcpy      ( derivatives, deviceDerivatives, inputsCount*sizeof(double), cudaMemcpyDeviceToHost ));
     cudaCall(cudaFree(deviceInputs));
 }
 
-__global__ void calculateLocalGradientsForLastLayer(float * localGradients, float * error, float * outputs, float * derivatives, float * trainingOutputs, float sample_weight, int neuronsCount, int neuronsInLastLayers)
+__global__ void calculateLocalGradientsForLastLayer(double * localGradients, double * error, double * outputs, double * derivatives, double * trainingOutputs, double sample_weight, int neuronsCount, int neuronsInLastLayers)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(idx < neuronsCount)
     {
-        float current_error = trainingOutputs[idx] - outputs[neuronsInLastLayers + idx];
+        double current_error = trainingOutputs[idx] - outputs[neuronsInLastLayers + idx];
         localGradients[neuronsInLastLayers + idx] = current_error * sample_weight * derivatives[neuronsInLastLayers + idx];
 
         error[idx] = current_error * current_error;
     }
 }
 
-__global__ void calculateLocalGradientsForAnotherLayers(float * localGradients, float * neuronsInputsWeights, float * derivatives, int neuronsCount, int neuronsInPreviousLayers, int neuronsInPreviousLayersWithCurrent, int neuronsInNextLayer, int inputsInPreviousLayers, int inputsInCurrentLayer)
+__global__ void calculateLocalGradientsForAnotherLayers(double * localGradients, double * neuronsInputsWeights, double * derivatives, int neuronsCount, int neuronsInPreviousLayers, int neuronsInPreviousLayersWithCurrent, int neuronsInNextLayer, int inputsInPreviousLayers, int inputsInCurrentLayer)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -592,31 +595,31 @@ __global__ void calculateLocalGradientsForAnotherLayers(float * localGradients, 
     }
 }
 
-__global__ void changeWeightsForFirstLayer(float * neuronsInputsWeights, float * trainingInputs, float * localGradients, float speed, int inputsInLayer, int inputsCount)
+__global__ void changeWeightsForFirstLayer(double * neuronsInputsWeights, double * trainingInputs, double * localGradients, double speed, int inputsInLayer, int inputsCount)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(idx < inputsInLayer)
     {
-        float deltaWeight = speed * localGradients[(int) (idx / inputsCount)] * trainingInputs[idx % inputsCount];
-        float temp = neuronsInputsWeights[idx] + deltaWeight;
+        double deltaWeight = speed * localGradients[(int) (idx / inputsCount)] * trainingInputs[idx % inputsCount];
+        double temp = neuronsInputsWeights[idx] + deltaWeight;
         neuronsInputsWeights[idx] = temp;
     }
 }
 
-__global__ void changeBiasesForFirstLayer(float * neuronsBiases, float * localGradients, float speed, int neuronsCount)
+__global__ void changeBiasesForFirstLayer(double * neuronsBiases, double * localGradients, double speed, int neuronsCount)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(idx < neuronsCount)
     {
-        float deltaBias = speed * localGradients[idx];
-        float temp = neuronsBiases[idx] - deltaBias;
+        double deltaBias = speed * localGradients[idx];
+        double temp = neuronsBiases[idx] - deltaBias;
         neuronsBiases[idx] = temp;
     }
 }
 
-__global__ void changeWeightsForAnotherLayers(float * neuronsInputsWeights, float * localGradients, float * outputs, int * neuronsInPreviousLayers, int * inputsInPreviousLayers, int * inputsInCurrentLayer, float speed, int inputsCount, int layersCount)
+__global__ void changeWeightsForAnotherLayers(double * neuronsInputsWeights, double * localGradients, double * outputs, int * neuronsInPreviousLayers, int * inputsInPreviousLayers, int * inputsInCurrentLayer, double speed, int inputsCount, int layersCount)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -639,7 +642,7 @@ __global__ void changeWeightsForAnotherLayers(float * neuronsInputsWeights, floa
     }
 }
 
-__global__ void changeBiasesForAnotherLayers(float * neuronsBiases, float * localGradients, float speed, int neuronsCount, int neuronsInFirstLayer)
+__global__ void changeBiasesForAnotherLayers(double * neuronsBiases, double * localGradients, double speed, int neuronsCount, int neuronsInFirstLayer)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -649,40 +652,96 @@ __global__ void changeBiasesForAnotherLayers(float * neuronsBiases, float * loca
     }
 }
 
-float OpenNNL::_changeWeightsByBP(float * trainingInputs, float *trainingOutputs, float speed, float sample_weight)
+__global__ void reduceSum ( double * inData, double * outData )
 {
-    dim3 threads = dim3(512, 1);
+    __shared__ double data [BLOCK_SIZE];
+    int   tid = threadIdx.x;
+    int   i   = 2 * blockIdx.x * blockDim.x + threadIdx.x;
+
+    data [tid] = inData [i] + inData [i+blockDim.x];     // load into shared memeory
+
+    __syncthreads ();
+
+    for ( int s = blockDim.x / 2; s > 32; s >>= 1 )
+    {
+        if ( tid < s )
+            data [tid] += data [tid + s];
+
+        __syncthreads ();
+    }
+
+    if ( tid < 32 )                                   // unroll last iterations
+    {
+        data [tid] += data [tid + 32];
+        data [tid] += data [tid + 16];
+        data [tid] += data [tid +  8];
+        data [tid] += data [tid +  4];
+        data [tid] += data [tid +  2];
+        data [tid] += data [tid +  1];
+    }
+
+    if ( tid == 0 )                                      // write result of block reduction
+        outData [blockIdx.x] = data [0];
+}
+
+double OpenNNL::_changeWeightsByBP(double * trainingInputs, double *trainingOutputs, double speed, double sample_weight)
+{
+    dim3 threads = dim3(BLOCK_SIZE, 1);
     int blocksCount;
     dim3 blocks;
 
-    float error = 0, current_error;
-    //float * localGradients = new float[_neuronsCount];
-    //float * outputs = new float[_neuronsCount];
-    //float * derivatives = new float[_neuronsCount];
+    double error = 0, current_error;
+    int neuronsInLastLayer = _neuronsPerLayerCount[_layersCount-1];
+    int index = 0, n = neuronsInLastLayer;
+    double * errors = new double[neuronsInLastLayer];
+    //double * localGradients = new double[_neuronsCount];
+    //double * outputs = new double[_neuronsCount];
+    //double * derivatives = new double[_neuronsCount];
 
     // calculateNeuronsOutputsAndDerivatives
-    float * deviceOutputs;
-    float * deviceDerivatives;
+    double * deviceOutputs;
+    double * deviceDerivatives;
 
-    float * deviceTrainingInputs;
-    float * deviceTrainingOutputs;
+    double * deviceTrainingInputs;
+    double * deviceTrainingOutputs;
 
-    float * deviceLocalGradients;
-    float * deviceErrors;
+    double * deviceLocalGradients;
+    double * deviceErrors[2] = {NULL, NULL};
 
-    cudaCall(cudaMalloc ( (void**)&deviceOutputs, _neuronsCount*sizeof(float) ));
-    cudaCall(cudaMalloc ( (void**)&deviceDerivatives, _neuronsCount*sizeof(float) ));
+    cudaCall(cudaMalloc ( (void**)&deviceOutputs, _neuronsCount*sizeof(double) ));
+    cudaCall(cudaMalloc ( (void**)&deviceDerivatives, _neuronsCount*sizeof(double) ));
 
-    cudaCall(cudaMalloc ( (void**)&deviceTrainingInputs, _inputsCount*sizeof(float) ));
-    cudaCall(cudaMemcpy      ( deviceTrainingInputs, trainingInputs, _inputsCount*sizeof(float), cudaMemcpyHostToDevice ));
+    cudaCall(cudaMalloc ( (void**)&deviceTrainingInputs, _inputsCount*sizeof(double) ));
+    cudaCall(cudaMemcpy      ( deviceTrainingInputs, trainingInputs, _inputsCount*sizeof(double), cudaMemcpyHostToDevice ));
 
-    cudaCall(cudaMalloc ( (void**)&deviceTrainingOutputs, _outputsCount*sizeof(float) ));
-    cudaCall(cudaMemcpy      ( deviceTrainingOutputs, trainingOutputs, _outputsCount*sizeof(float), cudaMemcpyHostToDevice ));
+    cudaCall(cudaMalloc ( (void**)&deviceTrainingOutputs, _outputsCount*sizeof(double) ));
+    cudaCall(cudaMemcpy      ( deviceTrainingOutputs, trainingOutputs, _outputsCount*sizeof(double), cudaMemcpyHostToDevice ));
 
-    cudaCall(cudaMalloc ( (void**)&deviceLocalGradients, _neuronsCount*sizeof(float) ));
-    cudaCall(cudaMalloc ( (void**)&deviceErrors, _neuronsCount*sizeof(float) ));
+    cudaCall(cudaMalloc ( (void**)&deviceLocalGradients, _neuronsCount*sizeof(double) ));
+    cudaCall(cudaMalloc ( (void**)&deviceErrors[0], neuronsInLastLayer*sizeof(double) ));
+    cudaCall(cudaMalloc ( (void**)&deviceErrors[1], neuronsInLastLayer*sizeof(double) ));
 
     calculateNeuronsOutputsAndDerivatives(deviceTrainingInputs, deviceOutputs, deviceDerivatives);
+
+    /*double * outputs = new double[_neuronsCount];
+    cudaCall(cudaMemcpy      ( outputs, deviceOutputs, _neuronsCount*sizeof(double), cudaMemcpyDeviceToHost ));
+
+    cout << "outputs:" << endl;
+    for(int i=0;i<_neuronsCount;i++)
+        cout << outputs[i] << endl;
+    cout << "------------" << endl;
+
+    delete[] outputs;
+
+    double * derivatives = new double[_neuronsCount];
+    cudaCall(cudaMemcpy      ( derivatives, deviceDerivatives, _neuronsCount*sizeof(double), cudaMemcpyDeviceToHost ));
+
+    cout << "derivatives:" << endl;
+    for(int i=0;i<_neuronsCount;i++)
+        cout << derivatives[i] << endl;
+    cout << "------------" << endl;
+
+    delete[] derivatives;*/
 
     // calculateLocalGradientsForLastLayer
     /*for(int j=0;j<_deviceNeuronsPerLayerCount[_layersCount-1];j++) // cuda kernel
@@ -693,22 +752,59 @@ float OpenNNL::_changeWeightsByBP(float * trainingInputs, float *trainingOutputs
         error += current_error * current_error;
     }*/
 
-    blocksCount = floor((float) _neuronsPerLayerCount[_layersCount-1] / threads.x) + 1;
+    blocksCount = floor((double) neuronsInLastLayer / threads.x) + 1;
     blocks  = dim3(blocksCount, 1);
 
-    calculateLocalGradientsForLastLayer <<<blocks, threads>>>(deviceLocalGradients, deviceErrors, deviceOutputs, deviceDerivatives, deviceTrainingOutputs, sample_weight, _neuronsPerLayerCount[_layersCount-1], _neuronsInPreviousLayers[_layersCount-1]);
+    calculateLocalGradientsForLastLayer <<<blocks, threads>>>(deviceLocalGradients, deviceErrors[0], deviceOutputs, deviceDerivatives, deviceTrainingOutputs, sample_weight, neuronsInLastLayer, _neuronsInPreviousLayers[_layersCount-1]);
+
+    /*cudaMemcpy      ( errors, deviceErrors [0], neuronsInLastLayer*sizeof(double), cudaMemcpyDeviceToHost );
+
+    cout << "errors: " << endl;
+    for(int i=0;i<n;i++)
+        cout << errors[i] << endl;
+    cout << "-------------" << endl;*/
+
+    for (index = 0; n >= BLOCK_SIZE; n /= (2*BLOCK_SIZE), index ^= 1 )
+    {
+                               // set kernel launch configuration
+        dim3 dimBlock ( BLOCK_SIZE, 1, 1 );
+        dim3 dimGrid  ( n / (2*dimBlock.x), 1, 1 );
+
+        reduceSum <<<dimGrid, dimBlock>>> ( deviceErrors [index], deviceErrors [index^1] );
+    }
+
+    cudaMemcpy      ( errors, deviceErrors [index], neuronsInLastLayer*sizeof(double), cudaMemcpyDeviceToHost );
+
+    /*cout << "errors: " << endl;
+    for(int i=0;i<n;i++)
+        cout << errors[i] << endl;
+    cout << "-------------" << endl;*/
+
+    for ( index = 1; index < n; index++ )
+            errors [0] += errors [index];
 
     if(_layersCount > 1)
     {
         for(int i=_layersCount-2;i>=0;i--)
         {
             // calculateLocalGradientsForAnotherLayers
-            blocksCount = floor((float) _neuronsPerLayerCount[i] / threads.x) + 1;
+            blocksCount = floor((double) _neuronsPerLayerCount[i] / threads.x) + 1;
             blocks  = dim3(blocksCount, 1);
 
             calculateLocalGradientsForAnotherLayers <<<blocks, threads>>> (deviceLocalGradients, _neuronsInputsWeights, deviceDerivatives, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i], _neuronsInPreviousLayers[i+1], _neuronsPerLayerCount[i+1], _inputsInPreviousLayers[i], _inputsInCurrentLayer[i]);
         }
     }
+
+    /*double * localGradients = new double[_neuronsCount];
+    cudaCall(cudaMemcpy      ( localGradients, deviceLocalGradients, _neuronsCount*sizeof(double), cudaMemcpyDeviceToHost ));
+
+    cout << "localGradients:" << endl;
+    for(int i=0;i<_neuronsCount;i++)
+        cout << localGradients[i] << endl;
+    cout << "------------" << endl;
+
+    delete[] localGradients;*/
+
 
     // changeWeightsForFirstLayer
     /*for(int j=0;j<_neuronsPerLayerCount[0];j++) // this and next cicle for cuda kernel (j*k threads)
@@ -720,12 +816,12 @@ float OpenNNL::_changeWeightsByBP(float * trainingInputs, float *trainingOutputs
 
         _neuronsBiases[indexByLayerAndNeuron(0, j)] -= speed * localGradients[indexByLayerAndNeuron(0, j)];
     }*/
-    blocksCount = floor((float) _neuronsPerLayerCount[0] * _inputsCount / threads.x) + 1;
+    blocksCount = floor((double) _neuronsPerLayerCount[0] * _inputsCount / threads.x) + 1;
     blocks  = dim3(blocksCount, 1);
 
     changeWeightsForFirstLayer <<<blocks, threads>>> (_neuronsInputsWeights, deviceTrainingInputs, deviceLocalGradients, speed, _neuronsPerLayerCount[0] * _inputsCount, _inputsCount);
 
-    blocksCount = floor((float) _neuronsPerLayerCount[0] / threads.x) + 1;
+    blocksCount = floor((double) _neuronsPerLayerCount[0] / threads.x) + 1;
     blocks  = dim3(blocksCount, 1);
 
     changeBiasesForFirstLayer <<<blocks, threads>>> (_neuronsBiases, deviceLocalGradients, speed, _neuronsPerLayerCount[0]);
@@ -744,15 +840,35 @@ float OpenNNL::_changeWeightsByBP(float * trainingInputs, float *trainingOutputs
         }
     }*/
 
-    blocksCount = floor((float) _weightsCount / threads.x) + 1;
+    blocksCount = floor((double) _weightsCount / threads.x) + 1;
     blocks  = dim3(blocksCount, 1);
 
     changeWeightsForAnotherLayers <<<blocks, threads>>> (_neuronsInputsWeights, deviceLocalGradients, deviceOutputs, _deviceNeuronsInPreviousLayers, _deviceInputsInPreviousLayers, _deviceInputsInCurrentLayer, speed, _weightsCount, _layersCount);
 
-    blocksCount = floor((float) _neuronsCount / threads.x) + 1;
+    /*double * weights = new double[_weightsCount];
+    cudaCall(cudaMemcpy      ( weights, _neuronsInputsWeights, _weightsCount*sizeof(double), cudaMemcpyDeviceToHost ));
+
+    cout << "weights:" << endl;
+    for(int i=0;i<_weightsCount;i++)
+        cout << weights[i] << endl;
+    cout << "------------" << endl;
+
+    delete[] weights;*/
+
+    blocksCount = floor((double) _neuronsCount / threads.x) + 1;
     blocks  = dim3(blocksCount, 1);
 
     changeBiasesForAnotherLayers <<<blocks, threads>>> (_neuronsBiases, deviceLocalGradients, speed, _neuronsCount, _neuronsInPreviousLayers[1]);
+
+    /*double * biases = new double[_neuronsCount];
+    cudaCall(cudaMemcpy      ( biases, _neuronsBiases, _neuronsCount*sizeof(double), cudaMemcpyDeviceToHost ));
+
+    cout << "biases:" << endl;
+    for(int i=0;i<_neuronsCount;i++)
+        cout << biases[i] << endl;
+    cout << "------------" << endl;
+
+    delete[] biases;*/
 
     //delete[] localGradients;
     //delete[] outputs;
@@ -761,19 +877,20 @@ float OpenNNL::_changeWeightsByBP(float * trainingInputs, float *trainingOutputs
     cudaCall(cudaFree(deviceOutputs));
     cudaCall(cudaFree(deviceDerivatives));
 
-    cudaCall(cudaFree(deviceErrors));
+    cudaCall(cudaFree(deviceErrors[0]));
+    cudaCall(cudaFree(deviceErrors[1]));
 
-    error /= 2;
+    error = errors[0]/2;
     return error;
 }
 
-float OpenNNL::_changeWeightsByIDBD(float * trainingInputs, float *trainingOutputs, float speed, float sample_weight)
+double OpenNNL::_changeWeightsByIDBD(double * trainingInputs, double *trainingOutputs, double speed, double sample_weight)
 {
-    float error = 0, current_error;
-    float cur_rate, delta, deltaB, deltaH;
-    float * localGradients = new float[_neuronsCount];
-    float * outputs = new float[_neuronsCount];
-    float * derivatives = new float[_neuronsCount];
+    double error = 0, current_error;
+    double cur_rate, delta, deltaB, deltaH;
+    double * localGradients = new double[_neuronsCount];
+    double * outputs = new double[_neuronsCount];
+    double * derivatives = new double[_neuronsCount];
 
     calculateNeuronsOutputsAndDerivatives(trainingInputs, outputs, derivatives);
 
@@ -931,19 +1048,21 @@ float OpenNNL::_changeWeightsByIDBD(float * trainingInputs, float *trainingOutpu
     return error;
 }
 
-bool OpenNNL::_doEpochBP(int samplesCount, float * trainingInputs, float * trainingOutputs, int numEpoch, float speed, float minError)
+bool OpenNNL::_doEpochBP(int samplesCount, double * trainingInputs, double * trainingOutputs, int numEpoch, double speed, double minError)
 {
-    float error = 0;
-    float * currentSampleInputs = new float[_inputsCount];
-    float * currentSampleOutputs = new float[_outputsCount];
+    double error = 0;
+    double * currentSampleInputs = new double[_inputsCount];
+    double * currentSampleOutputs = new double[_outputsCount];
 
     for(int sample=0;sample<samplesCount;sample++)
     {
         cout << "Epoch: " << numEpoch << ", Sample: " << sample << endl;
-        memcpy(currentSampleInputs, trainingInputs+sample*_inputsCount, _inputsCount*sizeof(float));
-        memcpy(currentSampleOutputs, trainingOutputs+sample*_outputsCount, _outputsCount*sizeof(float));
+        memcpy(currentSampleInputs, trainingInputs+sample*_inputsCount, _inputsCount*sizeof(double));
+        memcpy(currentSampleOutputs, trainingOutputs+sample*_outputsCount, _outputsCount*sizeof(double));
 
         error = _changeWeightsByBP(currentSampleInputs, currentSampleOutputs, speed, 1);
+
+        cout << "Error: " << error << endl;
     }
 
     delete[] currentSampleInputs;
@@ -952,17 +1071,17 @@ bool OpenNNL::_doEpochBP(int samplesCount, float * trainingInputs, float * train
     return (error <= minError);
 }
 
-bool OpenNNL::_doEpochIDBD(int samplesCount, float * trainingInputs, float * trainingOutputs, int numEpoch, float speed, float minError)
+bool OpenNNL::_doEpochIDBD(int samplesCount, double * trainingInputs, double * trainingOutputs, int numEpoch, double speed, double minError)
 {
-    float error = 0;
-    float * currentSampleInputs = new float[_inputsCount];
-    float * currentSampleOutputs = new float[_outputsCount];
+    double error = 0;
+    double * currentSampleInputs = new double[_inputsCount];
+    double * currentSampleOutputs = new double[_outputsCount];
 
     for(int sample=0;sample<samplesCount;sample++)
     {
         cout << "Sample: " << sample << endl;
-        memcpy(currentSampleInputs, trainingInputs+sample*_inputsCount, _inputsCount*sizeof(float));
-        memcpy(currentSampleOutputs, trainingOutputs+sample*_outputsCount, _outputsCount*sizeof(float));
+        memcpy(currentSampleInputs, trainingInputs+sample*_inputsCount, _inputsCount*sizeof(double));
+        memcpy(currentSampleOutputs, trainingOutputs+sample*_outputsCount, _outputsCount*sizeof(double));
 
         error = _changeWeightsByIDBD(currentSampleInputs, currentSampleOutputs, speed, 1);
     }
@@ -973,7 +1092,7 @@ bool OpenNNL::_doEpochIDBD(int samplesCount, float * trainingInputs, float * tra
     return (error <= minError);
 }
 
-void OpenNNL::_trainingBP(int samplesCount, float * trainingInputs, float * trainingOutputs, int maxEpochsCount, float speed, float error)
+void OpenNNL::_trainingBP(int samplesCount, double * trainingInputs, double * trainingOutputs, int maxEpochsCount, double speed, double error)
 {
     for(int i=0;i<maxEpochsCount;i++)
     {
@@ -985,7 +1104,7 @@ void OpenNNL::_trainingBP(int samplesCount, float * trainingInputs, float * trai
 }
 
 
-void OpenNNL::_trainingIDBD(int samplesCount, float * trainingInputs, float * trainingOutputs, int maxEpochsCount, float speed, float error)
+void OpenNNL::_trainingIDBD(int samplesCount, double * trainingInputs, double * trainingOutputs, int maxEpochsCount, double speed, double error)
 {
     for(int i=0;i<maxEpochsCount;i++)
     {
@@ -996,18 +1115,18 @@ void OpenNNL::_trainingIDBD(int samplesCount, float * trainingInputs, float * tr
     }
 }
 
-void OpenNNL::trainingBP(int samplesCount, float * trainingInputs, float *trainingOutputs, int maxEpochsCount, float speed, float error)
+void OpenNNL::trainingBP(int samplesCount, double * trainingInputs, double *trainingOutputs, int maxEpochsCount, double speed, double error)
 {
     _trainingBP(samplesCount, trainingInputs, trainingOutputs, maxEpochsCount, speed, error);
 }
 
-void OpenNNL::trainingIDBD(int samplesCount, float * trainingInputs, float *trainingOutputs, int maxEpochsCount, float speed, float error)
+void OpenNNL::trainingIDBD(int samplesCount, double * trainingInputs, double *trainingOutputs, int maxEpochsCount, double speed, double error)
 {
-    _Bs = new float[_weightsCount];
-    _Hs = new float[_weightsCount];
+    _Bs = new double[_weightsCount];
+    _Hs = new double[_weightsCount];
 
-    _BsForBias = new float[_neuronsCount];
-    _HsForBias = new float[_neuronsCount];
+    _BsForBias = new double[_neuronsCount];
+    _HsForBias = new double[_neuronsCount];
 
     resetHsAndHsForBias();
     randomizeBsAndBsForBias();
@@ -1020,9 +1139,9 @@ void OpenNNL::trainingIDBD(int samplesCount, float * trainingInputs, float *trai
     delete[] _HsForBias;
 }
 
-void OpenNNL::getOutputs(float * out)
+void OpenNNL::getOutputs(double * out)
 {
-    memcpy(out, _outputs, sizeof(float)*_outputsCount);
+    memcpy(out, _outputs, sizeof(double)*_outputsCount);
 }
 
 void OpenNNL::resetHs()
@@ -1063,17 +1182,17 @@ void OpenNNL::randomizeBsAndBsForBias()
     randomizeBsForBias();
 }
 
-void OpenNNL::setWeights(float *weights)
+void OpenNNL::setWeights(double *weights)
 {
-    cudaCall(cudaMemcpy(_neuronsInputsWeights, weights, _weightsCount*sizeof(float), cudaMemcpyHostToDevice));
+    cudaCall(cudaMemcpy(_neuronsInputsWeights, weights, _weightsCount*sizeof(double), cudaMemcpyHostToDevice));
 }
 
-void OpenNNL::setBiases(float *biases)
+void OpenNNL::setBiases(double *biases)
 {
-    cudaCall(cudaMemcpy(_neuronsBiases, biases, _neuronsCount*sizeof(float), cudaMemcpyHostToDevice));
+    cudaCall(cudaMemcpy(_neuronsBiases, biases, _neuronsCount*sizeof(double), cudaMemcpyHostToDevice));
 }
 
-void OpenNNL::setWeightsAndBiases(float *weights, float *biases)
+void OpenNNL::setWeightsAndBiases(double *weights, double *biases)
 {
     setWeights(weights);
     setBiases(biases);

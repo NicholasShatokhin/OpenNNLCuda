@@ -15,6 +15,8 @@
 
 using namespace std;
 
+#define BLOCK_SIZE 256
+
 typedef enum {LIN, SIG} TActivationKind;
 
 class OpenNNL
@@ -36,49 +38,49 @@ class OpenNNL
         int * _inputsInCurrentLayer; // the inputs of each neuron in current layer (not sum)
         int * _deviceInputsInCurrentLayer; // device
 
-        float * _neuronsInputsWeights; // device // weights of neurons inputs
-        float * _neuronsBiases; // device // biases of neurons
+        double * _neuronsInputsWeights; // device // weights of neurons inputs
+        double * _neuronsBiases; // device // biases of neurons
 
-        float * _inputs;    // inputs of network
-        float * _outputs;   // outputs of network
-        //float * _derivatives; // device // derivatives of output of each neuron
+        double * _inputs;    // inputs of network
+        double * _outputs;   // outputs of network
+        //double * _derivatives; // device // derivatives of output of each neuron
 
-        float * _deviceInputs;  // device
-        float * _deviceOutputs; // device
+        double * _deviceInputs;  // device
+        double * _deviceOutputs; // device
 
-        float * _Bs;    // device // B for IDBD training
-        float * _BsForBias;    // device // B for IDBD training
-        float * _Hs;    // device // H for IDBD training
-        float * _HsForBias;    // device // H for IDBD training
+        double * _Bs;    // device // B for IDBD training
+        double * _BsForBias;    // device // B for IDBD training
+        double * _Hs;    // device // H for IDBD training
+        double * _HsForBias;    // device // H for IDBD training
 
-        /*float activation(float output, int type); // activation function
-        float derivative(float x, int type);  // derivative of activation function
+        /*double activation(double output, int type); // activation function
+        double derivative(double x, int type);  // derivative of activation function
 
-        inline float sigmoid(float output, float a);
-        inline float sigmoid_simple(float output);*/
+        inline double sigmoid(double output, double a);
+        inline double sigmoid_simple(double output);*/
 
-        void calculateNeuronsOutputsAndDerivatives(float * deviceInputs=NULL, float * deviceOutputs=NULL, float * deviceDerivatives=NULL); // calculates neurons outputs and derivatives for training functions
+        void calculateNeuronsOutputsAndDerivatives(double * deviceInputs=NULL, double * deviceOutputs=NULL, double * deviceDerivatives=NULL); // calculates neurons outputs and derivatives for training functions
 
-        inline void setB(int layer, int neuron, int input, float value);  // set B for current neuron's input
-        inline float getB(int layer, int neuron, int input);  // get B of current neuron's input
+        inline void setB(int layer, int neuron, int input, double value);  // set B for current neuron's input
+        inline double getB(int layer, int neuron, int input);  // get B of current neuron's input
 
-        inline void setBForBias(int layer, int neuron, float value);  // set B for current neuron's bias
-        inline float getBForBias(int layer, int neuron);  // get B of current neuron's bias
+        inline void setBForBias(int layer, int neuron, double value);  // set B for current neuron's bias
+        inline double getBForBias(int layer, int neuron);  // get B of current neuron's bias
 
-        inline void setH(int layer, int neuron, int input, float value); // set H for current neuron's input
-        inline float getH(int layer, int neuron, int input);  // get H of current neuron's input
+        inline void setH(int layer, int neuron, int input, double value); // set H for current neuron's input
+        inline double getH(int layer, int neuron, int input);  // get H of current neuron's input
 
-        inline void setHForBias(int layer, int neuron, float value); // set H for current neuron's input
-        inline float getHForBias(int layer, int neuron);  // get H of current neuron's input
+        inline void setHForBias(int layer, int neuron, double value); // set H for current neuron's input
+        inline double getHForBias(int layer, int neuron);  // get H of current neuron's input
 
-        inline void setWeight(int layer, int neuron, int input, float value); // set weight for current neuron's input
-        inline float getWeight(int layer, int neuron, int input); // get weight current neuron's input
+        inline void setWeight(int layer, int neuron, int input, double value); // set weight for current neuron's input
+        inline double getWeight(int layer, int neuron, int input); // get weight current neuron's input
 
-        inline void setBias(int layer, int neuron, float value);  // set bias for current neuron
-        inline float getBias(int layer, int neuron);  // get bias of current neuron
+        inline void setBias(int layer, int neuron, double value);  // set bias for current neuron
+        inline double getBias(int layer, int neuron);  // get bias of current neuron
 
-        //inline void setDerivative(int layer, int neuron, float value); // sets neuron's derivative value
-        //inline float getDerivative(int layer, int neuron); // gets neuron's derivative value
+        //inline void setDerivative(int layer, int neuron, double value); // sets neuron's derivative value
+        //inline double getDerivative(int layer, int neuron); // gets neuron's derivative value
 
         void resetHs();
         void resetHsForBias();
@@ -91,17 +93,17 @@ class OpenNNL
         inline int indexByLayerAndNeuron(int layer, int neuron);
         inline int indexByLayerNeuronAndInput(int layer, int neuron, int input);
 
-        //inline float activation(float x, TActivationKind kind=SIG);
-        //inline float activation_derivative(float x, TActivationKind kind=SIG);
+        //inline double activation(double x, TActivationKind kind=SIG);
+        //inline double activation_derivative(double x, TActivationKind kind=SIG);
 
-        float * _calculateWorker(float * inputs = NULL); // worker for calculation network outputs
-        float _changeWeightsByBP(float * trainingInputs, float * trainingOutputs, float speed, float sample_weight=1.0);
-        float _changeWeightsByIDBD(float * trainingInputs, float *trainingOutputs, float speed, float sample_weight=1.0);
+        double * _calculateWorker(double * inputs = NULL); // worker for calculation network outputs
+        double _changeWeightsByBP(double * trainingInputs, double * trainingOutputs, double speed, double sample_weight=1.0);
+        double _changeWeightsByIDBD(double * trainingInputs, double *trainingOutputs, double speed, double sample_weight=1.0);
 
-        bool _doEpochBP(int samplesCount, float * trainingInputs, float * trainingOutputs, int numEpoch, float speed, float error);
-        bool _doEpochIDBD(int samplesCount, float * trainingInputs, float * trainingOutputs, int numEpoch, float speed, float error);
-        void _trainingBP(int samplesCount, float * trainingInputs, float * trainingOutputs, int maxEpochsCount, float speed, float error);
-        void _trainingIDBD(int samplesCount, float * trainingInputs, float * trainingOutputs, int maxEpochsCount, float speed, float error);
+        bool _doEpochBP(int samplesCount, double * trainingInputs, double * trainingOutputs, int numEpoch, double speed, double error);
+        bool _doEpochIDBD(int samplesCount, double * trainingInputs, double * trainingOutputs, int numEpoch, double speed, double error);
+        void _trainingBP(int samplesCount, double * trainingInputs, double * trainingOutputs, int maxEpochsCount, double speed, double error);
+        void _trainingIDBD(int samplesCount, double * trainingInputs, double * trainingOutputs, int maxEpochsCount, double speed, double error);
 
         //inline void cudaCall(cudaError_t error, char *file=__FILE__, int line=__LINE__);
 
@@ -115,36 +117,36 @@ class OpenNNL
         void randomizeBiases(); // randomizes neurons biases
         void randomizeWeightsAndBiases();   // randomizes weights and biases
 
-        inline void setInput(int index, float value);  // sets value to input by index
-        inline float getOutput(int index); // gets output by index
+        inline void setInput(int index, double value);  // sets value to input by index
+        inline double getOutput(int index); // gets output by index
 
-        void setWeights(float * weights);  // sets neurons weights from argument
-        void setWeightsRef(float * weights);  // sets neurons weights by ref in argument (data must be alive while OpenNNL's object lives)
-        void setBiases(float * biases);    // sets neurons biases from argument
-        void setBiasesRef(float * biases);    // sets neurons biases by ref in argument (data must be alive while OpenNNL's object lives)
-        void setWeightsAndBiases(float * weights, float * biases);    // sets neurons weights and biases from argument
-        void setWeightsAndBiasesRef(float * weights, float * biases);    // sets neurons weights and biases by refs in arguments (data must be alive while OpenNNL's object lives)
+        void setWeights(double * weights);  // sets neurons weights from argument
+        void setWeightsRef(double * weights);  // sets neurons weights by ref in argument (data must be alive while OpenNNL's object lives)
+        void setBiases(double * biases);    // sets neurons biases from argument
+        void setBiasesRef(double * biases);    // sets neurons biases by ref in argument (data must be alive while OpenNNL's object lives)
+        void setWeightsAndBiases(double * weights, double * biases);    // sets neurons weights and biases from argument
+        void setWeightsAndBiasesRef(double * weights, double * biases);    // sets neurons weights and biases by refs in arguments (data must be alive while OpenNNL's object lives)
 
         bool loadWeights(const char * filename);
 
         void loadNetwork(const char * filename);    // this function loads network and its parameters from file
         void saveNetwork(const char * filename);    // this function stores network and its parameters to file
 
-        float * calculate(float * inputs=NULL);   // calculates network outputs and returns pointer to outputs array (copy 'inputs' data )
-        float * calculateRef(float * inputs=NULL);    // calculates network outputs and returns pointer to outputs array (sets internal inputs array by 'inputs' ref - data must be alive while OpenNNL's object lives)
+        double * calculate(double * inputs=NULL);   // calculates network outputs and returns pointer to outputs array (copy 'inputs' data )
+        double * calculateRef(double * inputs=NULL);    // calculates network outputs and returns pointer to outputs array (sets internal inputs array by 'inputs' ref - data must be alive while OpenNNL's object lives)
 
-        /*void training(int trainingSetSize, float ** trainingInputs, float **trainingOutputs, float speed, float error, int maxEpochs);
-        void trainingByFile(const char * filename, float speed, float error, int maxEpochs);
-        void trainingByFileBatch(const char * filename, float speed, float error, int maxEpochs, int batchSize=0, int offset=0);*/
+        /*void training(int trainingSetSize, double ** trainingInputs, double **trainingOutputs, double speed, double error, int maxEpochs);
+        void trainingByFile(const char * filename, double speed, double error, int maxEpochs);
+        void trainingByFileBatch(const char * filename, double speed, double error, int maxEpochs, int batchSize=0, int offset=0);*/
 
-        void trainingBP(int samplesCount, float * trainingInputs, float *trainingOutputs, int maxEpochsCount, float speed, float error);
-        void trainingIDBD(int samplesCount, float * trainingInputs, float *trainingOutputs, int maxEpochsCount, float speed, float error);
+        void trainingBP(int samplesCount, double * trainingInputs, double *trainingOutputs, int maxEpochsCount, double speed, double error);
+        void trainingIDBD(int samplesCount, double * trainingInputs, double *trainingOutputs, int maxEpochsCount, double speed, double error);
 
-        void setInputs(float * in);    // copies in to inputs
-        void setInputsRef(float * in);    // sets inputs by ref in argument (data must be alive while OpenNNL's object lives)
+        void setInputs(double * in);    // copies in to inputs
+        void setInputsRef(double * in);    // sets inputs by ref in argument (data must be alive while OpenNNL's object lives)
 
-        void getOutputs(float * out);  // copies network outputs to out
-        float * getOutputs();  // returns pointer to outputs array
+        void getOutputs(double * out);  // copies network outputs to out
+        double * getOutputs();  // returns pointer to outputs array
 
 };
 
