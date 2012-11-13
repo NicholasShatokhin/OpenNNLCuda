@@ -180,10 +180,13 @@ void testNetwork2()
     const int inputs_count = 784;
     const int outputs_count = 10;
     int neuronsInLayers[layers_count] = {300, 100, outputs_count};
+    //int neuronsInLayers[layers_count] = {50, 50, outputs_count};
     const double error = 0.005;
 
     OpenNNL * opennnl = new OpenNNL(inputs_count, layers_count, neuronsInLayers);
     opennnl->randomizeWeightsAndBiases();
+
+    opennnl->printDebugInfo();
 
     cout << "Preparing train data..." << endl;
 
@@ -206,7 +209,7 @@ void testNetwork2()
     unsigned char * image = new unsigned char[images.getRows()*images.getCols()];
     unsigned char label;
 
-    const int trainingSamplesCount = 2000;//images.getLength();
+    const int trainingSamplesCount = images.getLength();
     const double speed = 1 / (double) trainingSamplesCount;
 
     double * trainingInputs = new double[trainingSamplesCount*inputs_count];
@@ -234,7 +237,7 @@ void testNetwork2()
 
     cout << "Training..." << endl;
 
-    opennnl->trainingIDBD(trainingSamplesCount, trainingInputs, trainingOutputs, 1, speed, error);
+    opennnl->trainingBP(trainingSamplesCount, trainingInputs, trainingOutputs, 1, speed, error);
 
     delete trainingInputs;
     delete trainingOutputs;
@@ -251,7 +254,7 @@ void testNetwork2()
         return;
     }
 
-    const int testSamplesCount = 500;//images.getLength();
+    const int testSamplesCount = images.getLength();
 
     double * testInputs = new double[inputs_count];
     double * testOutputs = new double[outputs_count];

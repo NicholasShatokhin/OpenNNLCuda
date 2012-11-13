@@ -20,7 +20,7 @@ HEADERS += \
     mnistfile.h
 
 
-CUDA_ARCH = sm_20
+CUDA_ARCH = sm_40
 
 LIBS += -lcudart
 
