@@ -17,6 +17,8 @@ using namespace std;
 
 #define BLOCK_SIZE 256
 
+#define REAL double
+
 typedef enum {LIN, SIG} TActivationKind;
 
 class OpenNNL
@@ -31,6 +33,9 @@ class OpenNNL
         int _neuronsCount;   // num of all neurons in network (and also num of biases count)
         int _outputsCount;   // num of network outputs
 
+        int _maxLayerSize;
+        int _maxInputsCount;
+
         int * _neuronsInPreviousLayers; // the sum of the number of neurons in previous layers
         int * _deviceNeuronsInPreviousLayers; // device
         int * _inputsInPreviousLayers; // the sum of the inputs of each neuron in previous layers
@@ -38,49 +43,49 @@ class OpenNNL
         int * _inputsInCurrentLayer; // the inputs of each neuron in current layer (not sum)
         int * _deviceInputsInCurrentLayer; // device
 
-        double * _neuronsInputsWeights; // device // weights of neurons inputs
-        double * _neuronsBiases; // device // biases of neurons
+        REAL * _neuronsInputsWeights; // device // weights of neurons inputs
+        REAL * _neuronsBiases; // device // biases of neurons
 
-        double * _inputs;    // inputs of network
-        double * _outputs;   // outputs of network
-        //double * _derivatives; // device // derivatives of output of each neuron
+        REAL * _inputs;    // inputs of network
+        REAL * _outputs;   // outputs of network
+        //REAL * _derivatives; // device // derivatives of output of each neuron
 
-        double * _deviceInputs;  // device
-        double * _deviceOutputs; // device
+        REAL * _deviceInputs;  // device
+        REAL * _deviceOutputs; // device
 
-        double * _Bs;    // device // B for IDBD training
-        double * _BsForBias;    // device // B for IDBD training
-        double * _Hs;    // device // H for IDBD training
-        double * _HsForBias;    // device // H for IDBD training
+        REAL * _Bs;    // device // B for IDBD training
+        REAL * _BsForBias;    // device // B for IDBD training
+        REAL * _Hs;    // device // H for IDBD training
+        REAL * _HsForBias;    // device // H for IDBD training
 
-        /*double activation(double output, int type); // activation function
-        double derivative(double x, int type);  // derivative of activation function
+        /*REAL activation(REAL output, int type); // activation function
+        REAL derivative(REAL x, int type);  // derivative of activation function
 
-        inline double sigmoid(double output, double a);
-        inline double sigmoid_simple(double output);*/
+        inline REAL sigmoid(REAL output, REAL a);
+        inline REAL sigmoid_simple(REAL output);*/
 
-        void calculateNeuronsOutputsAndDerivatives(double * deviceInputs=NULL, double * deviceOutputs=NULL, double * deviceDerivatives=NULL); // calculates neurons outputs and derivatives for training functions
+        void calculateNeuronsOutputsAndDerivatives(REAL * trainingInputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceInputs, REAL * deviceTemp); // calculates neurons outputs and derivatives for training functions
 
-        inline void setB(int layer, int neuron, int input, double value);  // set B for current neuron's input
-        inline double getB(int layer, int neuron, int input);  // get B of current neuron's input
+        inline void setB(int layer, int neuron, int input, REAL value);  // set B for current neuron's input
+        inline REAL getB(int layer, int neuron, int input);  // get B of current neuron's input
 
-        inline void setBForBias(int layer, int neuron, double value);  // set B for current neuron's bias
-        inline double getBForBias(int layer, int neuron);  // get B of current neuron's bias
+        inline void setBForBias(int layer, int neuron, REAL value);  // set B for current neuron's bias
+        inline REAL getBForBias(int layer, int neuron);  // get B of current neuron's bias
 
-        inline void setH(int layer, int neuron, int input, double value); // set H for current neuron's input
-        inline double getH(int layer, int neuron, int input);  // get H of current neuron's input
+        inline void setH(int layer, int neuron, int input, REAL value); // set H for current neuron's input
+        inline REAL getH(int layer, int neuron, int input);  // get H of current neuron's input
 
-        inline void setHForBias(int layer, int neuron, double value); // set H for current neuron's input
-        inline double getHForBias(int layer, int neuron);  // get H of current neuron's input
+        inline void setHForBias(int layer, int neuron, REAL value); // set H for current neuron's input
+        inline REAL getHForBias(int layer, int neuron);  // get H of current neuron's input
 
-        inline void setWeight(int layer, int neuron, int input, double value); // set weight for current neuron's input
-        inline double getWeight(int layer, int neuron, int input); // get weight current neuron's input
+        inline void setWeight(int layer, int neuron, int input, REAL value); // set weight for current neuron's input
+        inline REAL getWeight(int layer, int neuron, int input); // get weight current neuron's input
 
-        inline void setBias(int layer, int neuron, double value);  // set bias for current neuron
-        inline double getBias(int layer, int neuron);  // get bias of current neuron
+        inline void setBias(int layer, int neuron, REAL value);  // set bias for current neuron
+        inline REAL getBias(int layer, int neuron);  // get bias of current neuron
 
-        //inline void setDerivative(int layer, int neuron, double value); // sets neuron's derivative value
-        //inline double getDerivative(int layer, int neuron); // gets neuron's derivative value
+        //inline void setDerivative(int layer, int neuron, REAL value); // sets neuron's derivative value
+        //inline REAL getDerivative(int layer, int neuron); // gets neuron's derivative value
 
         void resetHs();
         void resetHsForBias();
@@ -93,17 +98,17 @@ class OpenNNL
         inline int indexByLayerAndNeuron(int layer, int neuron);
         inline int indexByLayerNeuronAndInput(int layer, int neuron, int input);
 
-        //inline double activation(double x, TActivationKind kind=SIG);
-        //inline double activation_derivative(double x, TActivationKind kind=SIG);
+        //inline REAL activation(REAL x, TActivationKind kind=SIG);
+        //inline REAL activation_derivative(REAL x, TActivationKind kind=SIG);
 
-        double * _calculateWorker(double * inputs = NULL); // worker for calculation network outputs
-        double _changeWeightsByBP(double * trainingInputs, double * trainingOutputs, double speed, double sample_weight=1.0);
-        double _changeWeightsByIDBD(double * trainingInputs, double *trainingOutputs, double speed, double sample_weight=1.0);
+        REAL * _calculateWorker(REAL * inputs = NULL); // worker for calculation network outputs
+        REAL _changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrainingOutputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceLocalGradients, REAL * deviceErrors[], REAL * deviceInputs, REAL * deviceTemp, REAL speed, REAL sample_weight=1.0);
+        REAL _changeWeightsByIDBD(REAL * trainingInputs, REAL *trainingOutputs, REAL speed, REAL sample_weight=1.0);
 
-        bool _doEpochBP(int samplesCount, double * trainingInputs, double * trainingOutputs, int numEpoch, double speed, double error);
-        bool _doEpochIDBD(int samplesCount, double * trainingInputs, double * trainingOutputs, int numEpoch, double speed, double error);
-        void _trainingBP(int samplesCount, double * trainingInputs, double * trainingOutputs, int maxEpochsCount, double speed, double error);
-        void _trainingIDBD(int samplesCount, double * trainingInputs, double * trainingOutputs, int maxEpochsCount, double speed, double error);
+        bool _doEpochBP(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, int numEpoch, REAL speed, REAL error);
+        bool _doEpochIDBD(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, int numEpoch, REAL speed, REAL error);
+        void _trainingBP(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, int maxEpochsCount, REAL speed, REAL error);
+        void _trainingIDBD(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, int maxEpochsCount, REAL speed, REAL error);
 
         //inline void cudaCall(cudaError_t error, char *file=__FILE__, int line=__LINE__);
 
@@ -117,36 +122,36 @@ class OpenNNL
         void randomizeBiases(); // randomizes neurons biases
         void randomizeWeightsAndBiases();   // randomizes weights and biases
 
-        inline void setInput(int index, double value);  // sets value to input by index
-        inline double getOutput(int index); // gets output by index
+        inline void setInput(int index, REAL value);  // sets value to input by index
+        inline REAL getOutput(int index); // gets output by index
 
-        void setWeights(double * weights);  // sets neurons weights from argument
-        void setWeightsRef(double * weights);  // sets neurons weights by ref in argument (data must be alive while OpenNNL's object lives)
-        void setBiases(double * biases);    // sets neurons biases from argument
-        void setBiasesRef(double * biases);    // sets neurons biases by ref in argument (data must be alive while OpenNNL's object lives)
-        void setWeightsAndBiases(double * weights, double * biases);    // sets neurons weights and biases from argument
-        void setWeightsAndBiasesRef(double * weights, double * biases);    // sets neurons weights and biases by refs in arguments (data must be alive while OpenNNL's object lives)
+        void setWeights(REAL * weights);  // sets neurons weights from argument
+        void setWeightsRef(REAL * weights);  // sets neurons weights by ref in argument (data must be alive while OpenNNL's object lives)
+        void setBiases(REAL * biases);    // sets neurons biases from argument
+        void setBiasesRef(REAL * biases);    // sets neurons biases by ref in argument (data must be alive while OpenNNL's object lives)
+        void setWeightsAndBiases(REAL * weights, REAL * biases);    // sets neurons weights and biases from argument
+        void setWeightsAndBiasesRef(REAL * weights, REAL * biases);    // sets neurons weights and biases by refs in arguments (data must be alive while OpenNNL's object lives)
 
         bool loadWeights(const char * filename);
 
         void loadNetwork(const char * filename);    // this function loads network and its parameters from file
         void saveNetwork(const char * filename);    // this function stores network and its parameters to file
 
-        double * calculate(double * inputs=NULL);   // calculates network outputs and returns pointer to outputs array (copy 'inputs' data )
-        double * calculateRef(double * inputs=NULL);    // calculates network outputs and returns pointer to outputs array (sets internal inputs array by 'inputs' ref - data must be alive while OpenNNL's object lives)
+        REAL * calculate(REAL * inputs=NULL);   // calculates network outputs and returns pointer to outputs array (copy 'inputs' data )
+        REAL * calculateRef(REAL * inputs=NULL);    // calculates network outputs and returns pointer to outputs array (sets internal inputs array by 'inputs' ref - data must be alive while OpenNNL's object lives)
 
-        /*void training(int trainingSetSize, double ** trainingInputs, double **trainingOutputs, double speed, double error, int maxEpochs);
-        void trainingByFile(const char * filename, double speed, double error, int maxEpochs);
-        void trainingByFileBatch(const char * filename, double speed, double error, int maxEpochs, int batchSize=0, int offset=0);*/
+        /*void training(int trainingSetSize, REAL ** trainingInputs, REAL **trainingOutputs, REAL speed, REAL error, int maxEpochs);
+        void trainingByFile(const char * filename, REAL speed, REAL error, int maxEpochs);
+        void trainingByFileBatch(const char * filename, REAL speed, REAL error, int maxEpochs, int batchSize=0, int offset=0);*/
 
-        void trainingBP(int samplesCount, double * trainingInputs, double *trainingOutputs, int maxEpochsCount, double speed, double error);
-        void trainingIDBD(int samplesCount, double * trainingInputs, double *trainingOutputs, int maxEpochsCount, double speed, double error);
+        void trainingBP(int samplesCount, REAL * trainingInputs, REAL *trainingOutputs, int maxEpochsCount, REAL speed, REAL error);
+        void trainingIDBD(int samplesCount, REAL * trainingInputs, REAL *trainingOutputs, int maxEpochsCount, REAL speed, REAL error);
 
-        void setInputs(double * in);    // copies in to inputs
-        void setInputsRef(double * in);    // sets inputs by ref in argument (data must be alive while OpenNNL's object lives)
+        void setInputs(REAL * in);    // copies in to inputs
+        void setInputsRef(REAL * in);    // sets inputs by ref in argument (data must be alive while OpenNNL's object lives)
 
-        void getOutputs(double * out);  // copies network outputs to out
-        double * getOutputs();  // returns pointer to outputs array
+        void getOutputs(REAL * out);  // copies network outputs to out
+        REAL * getOutputs();  // returns pointer to outputs array
 
 };
 
