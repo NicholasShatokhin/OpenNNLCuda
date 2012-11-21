@@ -53,6 +53,9 @@ class OpenNNL
         REAL * _deviceInputs;  // device
         REAL * _deviceOutputs; // device
 
+        REAL * _layerInputs;    // temp variable for output calculation
+        REAL * _weightedLayerInputs;    // temp variable for output calculation
+
         REAL * _Bs;    // device // B for IDBD training
         REAL * _BsForBias;    // device // B for IDBD training
         REAL * _Hs;    // device // H for IDBD training
@@ -64,7 +67,7 @@ class OpenNNL
         inline REAL sigmoid(REAL output, REAL a);
         inline REAL sigmoid_simple(REAL output);*/
 
-        void calculateNeuronsOutputsAndDerivatives(REAL * trainingInputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceInputs, REAL * deviceTemp); // calculates neurons outputs and derivatives for training functions
+        void calculateNeuronsOutputsAndDerivatives(REAL * trainingInputs, REAL * deviceOutputs, REAL * deviceDerivatives); // calculates neurons outputs and derivatives for training functions
 
         inline void setB(int layer, int neuron, int input, REAL value);  // set B for current neuron's input
         inline REAL getB(int layer, int neuron, int input);  // get B of current neuron's input
@@ -101,11 +104,12 @@ class OpenNNL
         //inline REAL activation(REAL x, TActivationKind kind=SIG);
         //inline REAL activation_derivative(REAL x, TActivationKind kind=SIG);
 
-        REAL * _calculateWorker(REAL * inputs = NULL); // worker for calculation network outputs
-        REAL _changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrainingOutputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceLocalGradients, REAL * deviceErrors[], REAL * deviceInputs, REAL * deviceTemp, REAL speed, REAL sample_weight=1.0);
+        REAL * _calculateSingle(REAL * inputs); // worker for calculation network outputs
+        void _doCalculation(REAL * inputs, REAL * outputs);
+        REAL _changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrainingOutputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceLocalGradients, REAL * deviceErrors[], REAL speed, REAL sample_weight=1.0);
         REAL _changeWeightsByIDBD(REAL * trainingInputs, REAL *trainingOutputs, REAL speed, REAL sample_weight=1.0);
 
-        bool _doEpochBP(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, int numEpoch, REAL speed, REAL error);
+        bool _doEpochBP(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceLocalGradients, REAL * deviceErrors[], int numEpoch, REAL speed, REAL minError);
         bool _doEpochIDBD(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, int numEpoch, REAL speed, REAL error);
         void _trainingBP(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, int maxEpochsCount, REAL speed, REAL error);
         void _trainingIDBD(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, int maxEpochsCount, REAL speed, REAL error);
@@ -139,6 +143,8 @@ class OpenNNL
 
         REAL * calculate(REAL * inputs=NULL);   // calculates network outputs and returns pointer to outputs array (copy 'inputs' data )
         REAL * calculateRef(REAL * inputs=NULL);    // calculates network outputs and returns pointer to outputs array (sets internal inputs array by 'inputs' ref - data must be alive while OpenNNL's object lives)
+
+        void calculate(REAL * inputs, REAL * outputs, int samplesCount);
 
         /*void training(int trainingSetSize, REAL ** trainingInputs, REAL **trainingOutputs, REAL speed, REAL error, int maxEpochs);
         void trainingByFile(const char * filename, REAL speed, REAL error, int maxEpochs);

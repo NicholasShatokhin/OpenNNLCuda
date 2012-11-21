@@ -9,27 +9,33 @@ using namespace std;
 int maxArrayElementsIndex(REAL array[], int count);
 
 void testNetwork1();
-void testNetwork2();
+void testNetworkMnist(int epochCount);
+void prepareMnistDataAndTestNetwork();
 
 void startTimer(struct timespec * tp)
 {
-    clock_gettime(CLOCK_MONOTONIC, tp);
-
-    cout << "Time: 0 ns" << endl;
+    clock_gettime(CLOCK_MONOTONIC_RAW, tp);
 }
 
-void printTimerValue(struct timespec * tp)
+void printTimerValue(struct timespec * tp, const char * message = "")
 {
-    long int startTime = tp->tv_nsec;
 
-    clock_gettime(CLOCK_MONOTONIC, tp);
+    long int startTime = tp->tv_sec * 1000000000 + tp->tv_nsec;
 
-    cout << "Time: " << tp->tv_nsec - startTime << " ns" << endl;
+    clock_gettime(CLOCK_MONOTONIC_RAW, tp);
+
+    cout << message << ": time: " << tp->tv_sec * 1000000000 + tp->tv_nsec - startTime << " ns" << endl;
+
+    ofstream fout;
+    fout.open("timing.txt", ios_base::out | ios_base::app);
+    fout << message << ": time: " << tp->tv_sec * 1000000000 + tp->tv_nsec - startTime << " ns" << endl;
+    fout.close();
 }
 
 int main()
 {
-    testNetwork2();
+    prepareMnistDataAndTestNetwork();
+
     return 0;
 }
 
@@ -173,22 +179,72 @@ void testNetwork1()
     cout << "Done!" << endl;
 }
 
-void testNetwork2()
+void testNetworkMnist(int epochCount, int trainingSamplesCount, REAL * trainingInputs, REAL * trainingOutputs, int testSamplesCount, REAL * testInputs, REAL * testOutputs, unsigned char * labels, int layers_count, int inputs_count, int outputs_count, int * neuronsInLayers)
 {
     cout << "Creating network..." << endl;
-    const int layers_count = 3;
-    const int inputs_count = 784;
-    const int outputs_count = 10;
-    int neuronsInLayers[layers_count] = {300, 100, outputs_count};
-    //int neuronsInLayers[layers_count] = {50, 50, outputs_count};
+
+    struct timespec tp;
     const REAL error = 0.005;
+    const REAL speed = 1 / (REAL) trainingSamplesCount;
+    int outputLabel, correctAnswers = 0;
+
+    startTimer(&tp);
 
     OpenNNL * opennnl = new OpenNNL(inputs_count, layers_count, neuronsInLayers);
+
+    printTimerValue(&tp, "Creating network");
+
     opennnl->randomizeWeightsAndBiases();
 
-    opennnl->printDebugInfo();
+    printTimerValue(&tp, "randomizeWeightsAndBiases");
 
-    cout << "Preparing train data..." << endl;
+    opennnl->trainingBP(trainingSamplesCount, trainingInputs, trainingOutputs, epochCount, speed, error);
+
+    printTimerValue(&tp, "Training");
+
+    opennnl->calculate(testInputs, testOutputs, testSamplesCount);
+
+    printTimerValue(&tp, "Testing");
+
+    for(int i=0;i<testSamplesCount;i++)
+    {
+        outputLabel = maxArrayElementsIndex(testOutputs+i*outputs_count, outputs_count);
+        if(outputLabel == (int) labels[i])
+            correctAnswers++;
+        else
+        {
+            cout << i << ": Incorrect answer: " << outputLabel << " instead: " << (int) labels[i] << endl;
+
+            cout << "Outputs: " << setprecision(6);
+            for(int k=0;k<outputs_count;k++)
+            {
+                cout << testOutputs[i*outputs_count+k] << " ";
+            }
+            cout << endl;
+        }
+    }
+
+    cout << endl;
+    cout << "Correct answers " << correctAnswers << " from " << testSamplesCount << " labels" << endl;
+    REAL error_rate = 100.0 - ((REAL) correctAnswers) / ((REAL) testSamplesCount) * 100.0;
+    cout << "Error rate: " << error_rate << "%" << endl;
+
+    ofstream fout;
+    fout.open("timing.txt", ios_base::out | ios_base::app);
+    fout << "Error rate: " << error_rate << "%" << endl;
+    fout.close();
+
+    printTimerValue(&tp, "Check");
+
+    delete opennnl;
+
+    printTimerValue(&tp, "Delete");
+}
+
+void prepareMnistDataAndTestNetwork()
+{
+    const int inputs_count = 784;
+    const int outputs_count = 10;
 
     MnistFile images;
     MnistFile labels;
@@ -210,7 +266,6 @@ void testNetwork2()
     unsigned char label;
 
     const int trainingSamplesCount = images.getLength();
-    const REAL speed = 1 / (REAL) trainingSamplesCount;
 
     REAL * trainingInputs = new REAL[trainingSamplesCount*inputs_count];
     REAL * trainingOutputs = new REAL[trainingSamplesCount*outputs_count];
@@ -235,13 +290,6 @@ void testNetwork2()
     images.closeFile();
     labels.closeFile();
 
-    cout << "Training..." << endl;
-
-    opennnl->trainingBP(trainingSamplesCount, trainingInputs, trainingOutputs, 1, speed, error);
-
-    delete trainingInputs;
-    delete trainingOutputs;
-
     if(!images.openFile("../OpenNNLCuda/data/mnist/t10k-images.idx3-ubyte"))
     {
         cout << "Couldn't find test images file" << endl;
@@ -256,54 +304,103 @@ void testNetwork2()
 
     const int testSamplesCount = images.getLength();
 
-    REAL * testInputs = new REAL[inputs_count];
-    REAL * testOutputs = new REAL[outputs_count];
-    int outputLabel, correctAnswers=0;
+    unsigned char * testLabels = new unsigned char[testSamplesCount];
 
-    cout << "Testing..." << endl;
+    REAL * testInputs = new REAL[inputs_count*testSamplesCount];
+    REAL * testOutputs = new REAL[outputs_count*testSamplesCount];
+
 
     for(int i=0;i<testSamplesCount;i++)
     {
         images.readRecord(image);
-        labels.readRecord(&label);
+        labels.readRecord(&testLabels[i]);
 
         for(int j=0;j<inputs_count;j++)
         {
-            testInputs[j] = ((REAL) image[j] - 127.5) / 127.5;
-        }
-
-        opennnl->calculate(testInputs);
-        opennnl->getOutputs(testOutputs);
-
-        outputLabel = maxArrayElementsIndex(testOutputs, outputs_count);
-        if(outputLabel == (int) label)
-            correctAnswers++;
-        else
-        {
-            cout << i << ": Incorrect answer: " << outputLabel << " instead: " << (int) label << endl;
-
-            cout << "Outputs: " << setprecision(30);
-            for(int k=0;k<outputs_count;k++)
-            {
-                cout << testOutputs[i] << " ";
-            }
-            cout << endl;
+            testInputs[i*inputs_count+j] = ((REAL) image[j] - 127.5) / 127.5;
         }
     }
 
     images.closeFile();
     labels.closeFile();
 
+    // 300
+    int layers_count = 2;
+    int neuronsInLayers1[2] = {300, outputs_count};
+
+    ofstream fout;
+    fout.open("timing.txt", ios_base::out | ios_base::app);
+    fout << "Layers: " << layers_count << "; 1 hidden layer: 300 neurons"  << endl;
+    fout.close();
+
+    for(int i=1;i<=10;i++)
+    {
+        fout.open("timing.txt", ios_base::out | ios_base::app);
+        fout << "Epochs: " << i << endl;
+        fout.close();
+
+        testNetworkMnist(i, trainingSamplesCount, trainingInputs, trainingOutputs, testSamplesCount, testInputs, testOutputs, testLabels, layers_count, inputs_count, outputs_count, neuronsInLayers1);
+    }
+
+    // 300x100
+    layers_count = 3;
+    int neuronsInLayers2[3] = {300, 100, outputs_count};
+
+    fout.open("timing.txt", ios_base::out | ios_base::app);
+    fout << "Layers: " << layers_count << "; 2 hidden layers: 300 and 100 neurons"  << endl;
+    fout.close();
+
+    for(int i=1;i<=10;i++)
+    {
+        fout.open("timing.txt", ios_base::out | ios_base::app);
+        fout << "Epochs: " << i << endl;
+        fout.close();
+
+        testNetworkMnist(i, trainingSamplesCount, trainingInputs, trainingOutputs, testSamplesCount, testInputs, testOutputs, testLabels, layers_count, inputs_count, outputs_count, neuronsInLayers2);
+    }
+
+    // 500x150
+    layers_count = 3;
+    int neuronsInLayers3[3] = {500, 150, outputs_count};
+
+    fout.open("timing.txt", ios_base::out | ios_base::app);
+    fout << "Layers: " << layers_count << "; 2 hidden layers: 500 and 150 neurons"  << endl;
+    fout.close();
+
+    for(int i=1;i<=10;i++)
+    {
+        fout.open("timing.txt", ios_base::out | ios_base::app);
+        fout << "Epochs: " << i << endl;
+        fout.close();
+
+        testNetworkMnist(i, trainingSamplesCount, trainingInputs, trainingOutputs, testSamplesCount, testInputs, testOutputs, testLabels, layers_count, inputs_count, outputs_count, neuronsInLayers3);
+    }
+
+    // 500x300
+    layers_count = 3;
+    int neuronsInLayers4[3] = {500, 300, outputs_count};
+
+    fout.open("timing.txt", ios_base::out | ios_base::app);
+    fout << "Layers: " << layers_count << "; 2 hidden layers: 500 and 300 neurons"  << endl;
+    fout.close();
+
+    for(int i=1;i<=10;i++)
+    {
+        fout.open("timing.txt", ios_base::out | ios_base::app);
+        fout << "Epochs: " << i << endl;
+        fout.close();
+
+        testNetworkMnist(i, trainingSamplesCount, trainingInputs, trainingOutputs, testSamplesCount, testInputs, testOutputs, testLabels, layers_count, inputs_count, outputs_count, neuronsInLayers4);
+    }
+
+    delete trainingInputs;
+    delete trainingOutputs;
+
     delete image;
+    delete testLabels;
 
     delete testInputs;
     delete testOutputs;
-
-    cout << endl;
-    cout << "Correct answers " << correctAnswers << " from " << testSamplesCount << " labels" << endl;
-    cout << "Error rate: " << 100.0 - ((REAL) correctAnswers) / ((REAL) testSamplesCount) * 100.0 << "%" << endl;
-
-    delete opennnl;
 }
 
 int maxArrayElementsIndex(REAL array[], int count)

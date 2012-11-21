@@ -62,6 +62,16 @@ __global__ void calculateOut(REAL * outputs, REAL * inputs, REAL * biases, int i
     }
 }
 
+__global__ void copyData(REAL * output, REAL * input, int count)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(idx < count)
+    {
+        output[idx] = input[idx];
+    }
+}
+
 __global__ void initializeRandomGenerator ( curandState * state, unsigned long seed, int count )
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -148,6 +158,9 @@ OpenNNL::OpenNNL(const int inputsCount, const int layersCount, const int * neuro
     //_neuronsBiases = new REAL[_neuronsCount];
     cudaCall(cudaMalloc(&_neuronsInputsWeights, _weightsCount*sizeof(REAL)));
     cudaCall(cudaMalloc(&_neuronsBiases, _neuronsCount*sizeof(REAL)));
+
+    cudaCall(cudaMalloc ( (void**)&_layerInputs, _maxInputsCount*sizeof(REAL) ));
+    cudaCall(cudaMalloc((void**)&_weightedLayerInputs, _maxInputsCount*_maxLayerSize*sizeof(REAL)));
 }
 
 OpenNNL::~OpenNNL()
@@ -172,6 +185,9 @@ OpenNNL::~OpenNNL()
     //delete[] _neuronsBiases;
     cudaCall(cudaFree(_neuronsInputsWeights));
     cudaCall(cudaFree(_neuronsBiases));
+
+    cudaCall(cudaFree(_layerInputs));
+    cudaCall(cudaFree(_weightedLayerInputs));
 }
 
 void OpenNNL::printDebugInfo()
@@ -355,48 +371,78 @@ void OpenNNL::randomizeWeightsAndBiases()
     this->randomizeBiases();
 }
 
-REAL * OpenNNL::_calculateWorker(REAL *inpt)
+REAL * OpenNNL::_calculateSingle(REAL *inputs)
+{
+    REAL *deviceInputs;
+    REAL *deviceOutputs;
+
+    cudaCall(cudaMalloc ( (void**)&deviceInputs, _inputsCount*sizeof(REAL) ));
+    cudaCall(cudaMalloc ( (void**)&deviceOutputs, _outputsCount*sizeof(REAL) ));
+
+    cudaCall(cudaMemcpy      ( deviceInputs, inputs, _inputsCount*sizeof(REAL), cudaMemcpyHostToDevice ));
+
+    _doCalculation(deviceInputs, deviceOutputs);
+
+    cudaCall(cudaMemcpy      ( _outputs, deviceOutputs, _outputsCount*sizeof(REAL), cudaMemcpyDeviceToHost ));
+
+    cudaCall(cudaFree(deviceInputs));
+    cudaCall(cudaFree(deviceOutputs));
+
+    return _outputs;
+}
+
+void OpenNNL::_doCalculation(REAL *inputs, REAL * outputs)
 {   
     int inputsCount = _inputsCount;
 
-    REAL * deviceTemp;
-    REAL *deviceInputs;
+    //REAL * deviceTemp;
+    //REAL *deviceInputs;
 
-    cudaCall(cudaMalloc ( (void**)&deviceInputs, inputsCount*sizeof(REAL) ));
+    //cudaCall(cudaMalloc ( (void**)&deviceInputs, inputsCount*sizeof(REAL) ));
 
-    cudaCall(cudaMemcpy      ( deviceInputs, inpt, inputsCount*sizeof(REAL), cudaMemcpyHostToDevice ));
+    //cudaCall(cudaMemcpy      ( _layerInputs, inputs, inputsCount*sizeof(REAL), cudaMemcpyHostToDevice ));
+
+    dim3 threads = dim3(512, 1);
+    int blocksCount = floor((REAL) _inputsCount / threads.x) + 1;
+    dim3 blocks  = dim3(blocksCount, 1);
+
+    copyData<<<blocks, threads>>>(_layerInputs, inputs, _inputsCount);
 
     for(int i=0;i<_layersCount;i++)
     {
         //cudaCall(cudaMemoryAllocate((void***)&deviceTemp, sizeof(REAL), _neuronsPerLayerCount[i]*inputsCount));
-        cudaCall(cudaMalloc((void**)&deviceTemp, _neuronsPerLayerCount[i]*inputsCount*sizeof(REAL)));
+        //cudaCall(cudaMalloc((void**)&deviceTemp, _neuronsPerLayerCount[i]*inputsCount*sizeof(REAL)));
 
-        dim3 threadsMul = dim3(512, 1);
-        int blocksCount = floor((REAL) _neuronsPerLayerCount[i]*inputsCount / threadsMul.x) + 1;
-        dim3 blocksMul  = dim3(blocksCount, 1);
+        blocksCount = floor((REAL) _neuronsPerLayerCount[i]*inputsCount / threads.x) + 1;
+        blocks = dim3(blocksCount, 1);
 
-        weighting<<<blocksMul, threadsMul>>>(deviceTemp, deviceInputs, _neuronsInputsWeights, _inputsInPreviousLayers[i], inputsCount, _neuronsPerLayerCount[i]);
+        weighting<<<blocks, threads>>>(_weightedLayerInputs, _layerInputs, _neuronsInputsWeights, _inputsInPreviousLayers[i], inputsCount, _neuronsPerLayerCount[i]);
 
-        cudaCall(cudaFree(deviceInputs));
+        //cudaCall(cudaFree(deviceInputs));
 
         //cudaCall(cudaMemoryAllocate((void ***)&deviceInputs, sizeof(REAL), _neuronsPerLayerCount[i]));
-        cudaCall(cudaMalloc((void**)&deviceInputs, _neuronsPerLayerCount[i]*sizeof(REAL)));
+        //cudaCall(cudaMalloc((void**)&deviceInputs, _neuronsPerLayerCount[i]*sizeof(REAL)));
 
-        dim3 threadsSum = dim3(512, 1);
-        blocksCount = floor((REAL) _neuronsPerLayerCount[i] / threadsSum.x) + 1;
-        dim3 blocksSum  = dim3(blocksCount, 1);
+        blocksCount = floor((REAL) _neuronsPerLayerCount[i] / threads.x) + 1;
+        blocks = dim3(blocksCount, 1);
 
-        calculateOut <<<blocksSum, threadsSum>>> (deviceInputs, deviceTemp, _neuronsBiases, inputsCount, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i]);
+        calculateOut <<<blocks, threads>>> (_layerInputs, _weightedLayerInputs, _neuronsBiases, inputsCount, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i]);
 
         inputsCount = _neuronsPerLayerCount[i];
 
-        cudaCall(cudaFree(deviceTemp));
+        //cudaCall(cudaFree(deviceTemp));
     }
 
-    cudaCall(cudaMemcpy      ( _outputs, deviceInputs, inputsCount*sizeof(REAL), cudaMemcpyDeviceToHost ));
-    cudaCall(cudaFree(deviceInputs));
+    //cudaCall(cudaMemcpy      ( _outputs, _layerInputs, inputsCount*sizeof(REAL), cudaMemcpyDeviceToHost ));
 
-    return _outputs;
+    blocksCount = floor((REAL) _outputsCount / threads.x) + 1;
+    blocks  = dim3(blocksCount, 1);
+
+    copyData<<<blocks, threads>>>(outputs, _layerInputs, _outputsCount);
+
+    //cudaCall(cudaFree(deviceInputs));
+
+    //return _outputs;
 }
 
 REAL * OpenNNL::calculate(REAL *inputs)
@@ -406,7 +452,7 @@ REAL * OpenNNL::calculate(REAL *inputs)
         memcpy(_inputs, inputs, _inputsCount*sizeof(REAL));
     }
 
-    return _calculateWorker(_inputs);
+    return _calculateSingle(_inputs);
 }
 
 REAL * OpenNNL::calculateRef(REAL *inputs)
@@ -414,17 +460,28 @@ REAL * OpenNNL::calculateRef(REAL *inputs)
     if(!inputs)
         inputs = _inputs;
 
-    return _calculateWorker(inputs);
+    return _calculateSingle(inputs);
 }
 
-__global__ void copyData(REAL * output, REAL * input, int count)
+void OpenNNL::calculate(REAL * inputs, REAL * outputs, int samplesCount)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    REAL *deviceInputs;
+    REAL *deviceOutputs;
 
-    if(idx < count)
+    cudaCall(cudaMalloc ( (void**)&deviceInputs, _inputsCount*samplesCount*sizeof(REAL) ));
+    cudaCall(cudaMalloc ( (void**)&deviceOutputs, _outputsCount*samplesCount*sizeof(REAL) ));
+
+    cudaCall(cudaMemcpy      ( deviceInputs, inputs, _inputsCount*samplesCount*sizeof(REAL), cudaMemcpyHostToDevice ));
+
+    for(int i=0;i<samplesCount;i++)
     {
-        output[idx] = input[idx];
+        _doCalculation(deviceInputs+i*_inputsCount, deviceOutputs+i*_outputsCount);
     }
+
+    cudaCall(cudaMemcpy      ( outputs, deviceOutputs, _outputsCount*samplesCount*sizeof(REAL), cudaMemcpyDeviceToHost ));
+
+    cudaCall(cudaFree(deviceInputs));
+    cudaCall(cudaFree(deviceOutputs));
 }
 
 __global__ void calculateOutputsAndDerivatives(REAL * outputs, REAL * derivatives, REAL * layerOutputs, REAL * inputs, REAL * biases, int inputsCount, int neuronsCount, int neuronsInPreviousLayers)
@@ -449,7 +506,7 @@ __global__ void calculateOutputsAndDerivatives(REAL * outputs, REAL * derivative
     }
 }
 
-void OpenNNL::calculateNeuronsOutputsAndDerivatives(REAL * inputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceInputs, REAL * deviceTemp)
+void OpenNNL::calculateNeuronsOutputsAndDerivatives(REAL * inputs, REAL * deviceOutputs, REAL * deviceDerivatives)
 {
     dim3 threads = dim3(BLOCK_SIZE, 1);
 
@@ -465,7 +522,7 @@ void OpenNNL::calculateNeuronsOutputsAndDerivatives(REAL * inputs, REAL * device
     int blocksCount = floor((REAL) inputsCount / threads.x) + 1;
     dim3 blocks  = dim3(blocksCount, 1);
 
-    copyData<<<blocks, threads>>>(deviceInputs, inputs, inputsCount);
+    copyData<<<blocks, threads>>>(_layerInputs, inputs, inputsCount);
 
     for(int i=0;i<_layersCount;i++)
     {
@@ -474,7 +531,7 @@ void OpenNNL::calculateNeuronsOutputsAndDerivatives(REAL * inputs, REAL * device
         int blocksCount = floor((REAL) _neuronsPerLayerCount[i]*inputsCount / threads.x) + 1;
         dim3 blocksMul  = dim3(blocksCount, 1);
 
-        weighting<<<blocksMul, threads>>>(deviceTemp, deviceInputs, _neuronsInputsWeights, _inputsInPreviousLayers[i], inputsCount, _neuronsPerLayerCount[i]);
+        weighting<<<blocksMul, threads>>>(_weightedLayerInputs, _layerInputs, _neuronsInputsWeights, _inputsInPreviousLayers[i], inputsCount, _neuronsPerLayerCount[i]);
 
         //cudaCall(cudaFree(deviceInputs));
 
@@ -483,7 +540,7 @@ void OpenNNL::calculateNeuronsOutputsAndDerivatives(REAL * inputs, REAL * device
         blocksCount = floor((REAL) _neuronsPerLayerCount[i] / threads.x) + 1;
         dim3 blocksSum  = dim3(blocksCount, 1);
 
-        calculateOutputsAndDerivatives<<<blocksSum, threads>>>(deviceOutputs, deviceDerivatives, deviceInputs, deviceTemp, _neuronsBiases, inputsCount, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i]);
+        calculateOutputsAndDerivatives<<<blocksSum, threads>>>(deviceOutputs, deviceDerivatives, _layerInputs, _weightedLayerInputs, _neuronsBiases, inputsCount, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i]);
 
         inputsCount = _neuronsPerLayerCount[i];
 
@@ -506,7 +563,7 @@ __global__ void calculateLocalGradientsForLastLayer(REAL * localGradients, REAL 
     }
 }
 
-__global__ void calculateLocalGradientsForAnotherLayers(REAL * localGradients, REAL * neuronsInputsWeights, REAL * derivatives, int neuronsCount, int neuronsInPreviousLayers, int neuronsInPreviousLayersWithCurrent, int neuronsInNextLayer, int inputsInPreviousLayers, int inputsInCurrentLayer)
+__global__ void calculateLocalGradientsForAnotherLayers(REAL * localGradients, REAL * neuronsInputsWeights, REAL * derivatives, int neuronsCount, int neuronsInPreviousLayers, int neuronsInPreviousLayersWithCurrent, int neuronsInNextLayer, int inputsInPreviousLayersWithCurrent, int inputsInNextLayer)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -520,7 +577,7 @@ __global__ void calculateLocalGradientsForAnotherLayers(REAL * localGradients, R
         // this to Kernel, then reduce localGradients.
         for(int k=0;k<neuronsInNextLayer;k++)
         {
-            /*localGradients[neuron]*/ temp += neuronsInputsWeights[inputsInPreviousLayers + k*inputsInCurrentLayer + idx]
+            /*localGradients[neuron]*/ temp += neuronsInputsWeights[inputsInPreviousLayersWithCurrent + k*inputsInNextLayer + idx]
                                                             * localGradients[neuronsInPreviousLayersWithCurrent + k];
         }
 
@@ -617,7 +674,7 @@ __global__ void reduceSum ( REAL * inData, REAL * outData )
         outData [blockIdx.x] = data [0];
 }
 
-REAL OpenNNL::_changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrainingOutputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceLocalGradients, REAL * deviceErrors[], REAL * deviceInputs, REAL * deviceTemp, REAL speed, REAL sample_weight)
+REAL OpenNNL::_changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrainingOutputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceLocalGradients, REAL * deviceErrors[], REAL speed, REAL sample_weight)
 {
     dim3 threads = dim3(BLOCK_SIZE, 1);
     int blocksCount;
@@ -641,14 +698,14 @@ REAL OpenNNL::_changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrain
     cudaCall(cudaMalloc ( (void**)&deviceErrors[0], neuronsInLastLayer*sizeof(REAL) ));
     cudaCall(cudaMalloc ( (void**)&deviceErrors[1], neuronsInLastLayer*sizeof(REAL) ));*/
 
-    calculateNeuronsOutputsAndDerivatives(deviceTrainingInputs, deviceOutputs, deviceDerivatives, deviceInputs, deviceTemp);
+    calculateNeuronsOutputsAndDerivatives(deviceTrainingInputs, deviceOutputs, deviceDerivatives);
 
     blocksCount = floor((REAL) neuronsInLastLayer / threads.x) + 1;
     blocks  = dim3(blocksCount, 1);
 
     calculateLocalGradientsForLastLayer <<<blocks, threads>>>(deviceLocalGradients, deviceErrors[0], deviceOutputs, deviceDerivatives, deviceTrainingOutputs, sample_weight, neuronsInLastLayer, _neuronsInPreviousLayers[_layersCount-1]);
 
-    for (index = 0; n >= BLOCK_SIZE; n /= (2*BLOCK_SIZE), index ^= 1 )
+    /*for (index = 0; n >= BLOCK_SIZE; n /= (2*BLOCK_SIZE), index ^= 1 )
     {
                                // set kernel launch configuration
         dim3 dimBlock ( BLOCK_SIZE, 1, 1 );
@@ -660,17 +717,19 @@ REAL OpenNNL::_changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrain
     cudaMemcpy      ( errors, deviceErrors [index], neuronsInLastLayer*sizeof(REAL), cudaMemcpyDeviceToHost );
 
     for ( index = 1; index < n; index++ )
-            errors [0] += errors [index];
+            errors [0] += errors [index];*/
+    errors[0] = 10;
 
     if(_layersCount > 1)
     {
         for(int i=_layersCount-2;i>=0;i--)
         {
-            // calculateLocalGradientsForAnotherLayers
             blocksCount = floor((REAL) _neuronsPerLayerCount[i] / threads.x) + 1;
             blocks  = dim3(blocksCount, 1);
 
-            calculateLocalGradientsForAnotherLayers <<<blocks, threads>>> (deviceLocalGradients, _neuronsInputsWeights, deviceDerivatives, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i], _neuronsInPreviousLayers[i+1], _neuronsPerLayerCount[i+1], _inputsInPreviousLayers[i], _inputsInCurrentLayer[i]);
+            calculateLocalGradientsForAnotherLayers <<<blocks, threads>>> (deviceLocalGradients, _neuronsInputsWeights, deviceDerivatives, _neuronsPerLayerCount[i], _neuronsInPreviousLayers[i], _neuronsInPreviousLayers[i+1], _neuronsPerLayerCount[i+1], _inputsInPreviousLayers[i+1], _inputsInCurrentLayer[i+1]);
+
+            cudaThreadSynchronize();
         }
     }
 
@@ -693,13 +752,6 @@ REAL OpenNNL::_changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrain
     blocks  = dim3(blocksCount, 1);
 
     changeBiasesForAnotherLayers <<<blocks, threads>>> (_neuronsBiases, deviceLocalGradients, speed, _neuronsCount, _neuronsInPreviousLayers[1]);
-
-    /*cudaCall(cudaFree(deviceLocalGradients));
-    cudaCall(cudaFree(deviceOutputs));
-    cudaCall(cudaFree(deviceDerivatives));
-
-    cudaCall(cudaFree(deviceErrors[0]));
-    cudaCall(cudaFree(deviceErrors[1]));*/
 
     error = errors[0]/2;
     return error;
@@ -870,47 +922,38 @@ REAL OpenNNL::_changeWeightsByIDBD(REAL * trainingInputs, REAL *trainingOutputs,
     return 0;
 }
 
-bool OpenNNL::_doEpochBP(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, int numEpoch, REAL speed, REAL minError)
+bool OpenNNL::_doEpochBP(int samplesCount, REAL * trainingInputs, REAL * trainingOutputs, REAL * deviceOutputs, REAL * deviceDerivatives, REAL * deviceLocalGradients, REAL * deviceErrors[], int numEpoch, REAL speed, REAL minError)
 {
     REAL error = 0;
 
-    REAL * deviceOutputs;
+    /*REAL * deviceOutputs;
     REAL * deviceDerivatives;
 
     REAL * deviceLocalGradients;
     REAL * deviceErrors[2] = {NULL, NULL};
-
-    REAL * deviceInputs;
-    REAL * deviceTemp;
 
     cudaCall(cudaMalloc ( (void**)&deviceOutputs, _neuronsCount*sizeof(REAL) ));
     cudaCall(cudaMalloc ( (void**)&deviceDerivatives, _neuronsCount*sizeof(REAL) ));
 
     cudaCall(cudaMalloc ( (void**)&deviceLocalGradients, _neuronsCount*sizeof(REAL) ));
     cudaCall(cudaMalloc ( (void**)&deviceErrors[0], _neuronsPerLayerCount[_layersCount-1]*sizeof(REAL) ));
-    cudaCall(cudaMalloc ( (void**)&deviceErrors[1], _neuronsPerLayerCount[_layersCount-1]*sizeof(REAL) ));
-
-    cudaCall(cudaMalloc ( (void**)&deviceInputs, _maxInputsCount*sizeof(REAL) ));
-    cudaCall(cudaMalloc((void**)&deviceTemp, _maxInputsCount*_maxLayerSize*sizeof(REAL)));
+    cudaCall(cudaMalloc ( (void**)&deviceErrors[1], _neuronsPerLayerCount[_layersCount-1]*sizeof(REAL) ));*/
 
     for(int sample=0;sample<samplesCount;sample++)
     {
         cout << "Epoch: " << numEpoch << ", Sample: " << sample << endl;
 
-        error = _changeWeightsByBP(trainingInputs+sample*_inputsCount, trainingOutputs+sample*_outputsCount, deviceOutputs, deviceDerivatives, deviceLocalGradients, deviceErrors, deviceInputs, deviceTemp, speed, 1);
+        error = _changeWeightsByBP(trainingInputs+sample*_inputsCount, trainingOutputs+sample*_outputsCount, deviceOutputs, deviceDerivatives, deviceLocalGradients, deviceErrors, speed, 1);
 
         cout << "Error: " << error << endl;
     }
 
-    cudaCall(cudaFree(deviceLocalGradients));
+    /*cudaCall(cudaFree(deviceLocalGradients));
     cudaCall(cudaFree(deviceOutputs));
     cudaCall(cudaFree(deviceDerivatives));
 
     cudaCall(cudaFree(deviceErrors[0]));
-    cudaCall(cudaFree(deviceErrors[1]));
-
-    cudaCall(cudaFree(deviceInputs));
-    cudaCall(cudaFree(deviceTemp));
+    cudaCall(cudaFree(deviceErrors[1]));*/
 
     return (error <= minError);
 }
@@ -940,6 +983,19 @@ void OpenNNL::_trainingBP(int samplesCount, REAL * trainingInputs, REAL * traini
 {
     REAL * deviceTrainingInputs, * deviceTrainingOutputs;
 
+    REAL * deviceOutputs;
+    REAL * deviceDerivatives;
+
+    REAL * deviceLocalGradients;
+    REAL * deviceErrors[2] = {NULL, NULL};
+
+    cudaCall(cudaMalloc ( (void**)&deviceOutputs, _neuronsCount*sizeof(REAL) ));
+    cudaCall(cudaMalloc ( (void**)&deviceDerivatives, _neuronsCount*sizeof(REAL) ));
+
+    cudaCall(cudaMalloc ( (void**)&deviceLocalGradients, _neuronsCount*sizeof(REAL) ));
+    cudaCall(cudaMalloc ( (void**)&deviceErrors[0], _neuronsPerLayerCount[_layersCount-1]*sizeof(REAL) ));
+    cudaCall(cudaMalloc ( (void**)&deviceErrors[1], _neuronsPerLayerCount[_layersCount-1]*sizeof(REAL) ));
+
     cudaCall(cudaMalloc ( (void**)&deviceTrainingInputs, _inputsCount*samplesCount*sizeof(REAL) ));
     cudaCall(cudaMemcpy      ( deviceTrainingInputs, trainingInputs, _inputsCount*samplesCount*sizeof(REAL), cudaMemcpyHostToDevice ));
 
@@ -948,7 +1004,7 @@ void OpenNNL::_trainingBP(int samplesCount, REAL * trainingInputs, REAL * traini
 
     for(int i=0;i<maxEpochsCount;i++)
     {
-        if(_doEpochBP(samplesCount, deviceTrainingInputs, deviceTrainingOutputs, i, speed, error))
+        if(_doEpochBP(samplesCount, deviceTrainingInputs, deviceTrainingOutputs, deviceOutputs, deviceDerivatives, deviceLocalGradients, deviceErrors, i, speed, error))
         {
             break;
         }
@@ -956,6 +1012,13 @@ void OpenNNL::_trainingBP(int samplesCount, REAL * trainingInputs, REAL * traini
 
     cudaCall(cudaFree(deviceTrainingInputs));
     cudaCall(cudaFree(deviceTrainingOutputs));
+
+    cudaCall(cudaFree(deviceLocalGradients));
+    cudaCall(cudaFree(deviceOutputs));
+    cudaCall(cudaFree(deviceDerivatives));
+
+    cudaCall(cudaFree(deviceErrors[0]));
+    cudaCall(cudaFree(deviceErrors[1]));
 }
 
 
