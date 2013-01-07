@@ -13,11 +13,13 @@
 #include "utils.h"
 #include "cuda_helper.h"
 
+#include "LittleBigEndian.h"
+
 using namespace std;
 
 #define BLOCK_SIZE 256
 
-#define REAL double
+#define REAL float
 
 typedef enum {LIN, SIG} TActivationKind;
 
@@ -66,6 +68,12 @@ class OpenNNL
 
         inline REAL sigmoid(REAL output, REAL a);
         inline REAL sigmoid_simple(REAL output);*/
+
+        void createNetwork(const int inputsCount, const int layersCount, const int * neuronsPerLayerCount);
+        void destroyNetwork();
+
+        void load(const char * filename);
+        void save(const char * filename);
 
         void calculateNeuronsOutputsAndDerivatives(REAL * trainingInputs, REAL * deviceOutputs, REAL * deviceDerivatives); // calculates neurons outputs and derivatives for training functions
 

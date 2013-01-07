@@ -94,6 +94,11 @@ __global__ void generateRandomArray( curandState* globalState, REAL * randomArra
 
 OpenNNL::OpenNNL(const int inputsCount, const int layersCount, const int * neuronsPerLayerCount)
 {
+    createNetwork(inputsCount, layersCount, neuronsPerLayerCount);
+}
+
+void OpenNNL::createNetwork(const int inputsCount, const int layersCount, const int * neuronsPerLayerCount)
+{
     _maxLayerSize = 0;
     _maxInputsCount = 0;
 
@@ -163,7 +168,17 @@ OpenNNL::OpenNNL(const int inputsCount, const int layersCount, const int * neuro
     cudaCall(cudaMalloc((void**)&_weightedLayerInputs, _maxInputsCount*_maxLayerSize*sizeof(REAL)));
 }
 
+OpenNNL::OpenNNL(const char *filename)
+{
+    load(filename);
+}
+
 OpenNNL::~OpenNNL()
+{
+    destroyNetwork();
+}
+
+void OpenNNL::destroyNetwork()
 {
     delete[] _neuronsPerLayerCount;
     delete[] _inputsInPreviousLayers;
@@ -1114,4 +1129,215 @@ void OpenNNL::setWeightsAndBiases(REAL *weights, REAL *biases)
 {
     setWeights(weights);
     setBiases(biases);
+}
+
+//  SwapBytes.h
+//
+//  Function to perform in-place endian conversion of basic types
+//
+//  Usage:
+//
+//    double d;
+//    SwapBytes(&d, sizeof(d));
+//
+
+inline void SwapBytes(void *source, int size)
+{
+    typedef unsigned char TwoBytes[2];
+    typedef unsigned char FourBytes[4];
+    typedef unsigned char EightBytes[8];
+
+    unsigned char temp;
+
+    if(size == 2)
+    {
+        TwoBytes *src = (TwoBytes *)source;
+        temp = (*src)[0];
+        (*src)[0] = (*src)[1];
+        (*src)[1] = temp;
+
+        return;
+    }
+
+    if(size == 4)
+    {
+        FourBytes *src = (FourBytes *)source;
+        temp = (*src)[0];
+        (*src)[0] = (*src)[3];
+        (*src)[3] = temp;
+
+        temp = (*src)[1];
+        (*src)[1] = (*src)[2];
+        (*src)[2] = temp;
+
+        return;
+    }
+
+    if(size == 8)
+    {
+        EightBytes *src = (EightBytes *)source;
+        temp = (*src)[0];
+        (*src)[0] = (*src)[7];
+        (*src)[7] = temp;
+
+        temp = (*src)[1];
+        (*src)[1] = (*src)[6];
+        (*src)[6] = temp;
+
+        temp = (*src)[2];
+        (*src)[2] = (*src)[5];
+        (*src)[5] = temp;
+
+        temp = (*src)[3];
+        (*src)[3] = (*src)[4];
+        (*src)[4] = temp;
+
+        return;
+    }
+
+}
+
+void OpenNNL::loadNetwork(const char *filename)
+{
+    destroyNetwork();
+
+    load(filename);
+}
+
+void OpenNNL::saveNetwork(const char *filename)
+{
+    save(filename);
+}
+
+void OpenNNL::load(const char *filename)
+{
+    printf("loadingNetwork\n");
+
+    FILE * inputFile;
+    REAL weight;
+    int * neuronsPerLayerCount;
+    REAL * weights, * biases;
+    int inputsCount = 0, weightsCount = 0, biasesCount = 0;
+    int weightNum = 0, neuronNum = 0;
+    BigEndian<unsigned int> inputs, layersCount;
+    BigEndian<unsigned int> neuronsCount, activationType;
+
+    if(!(inputFile = fopen(filename, "r")))
+    {
+        fprintf(stderr, "Can't open file %s\n", filename);
+        return;
+    }
+
+    fread(&inputs, sizeof(int), 1, inputFile);
+    fread(&layersCount, sizeof(int), 1, inputFile);
+
+    printf("%d %d\n", (int)inputs, (int)layersCount);
+
+    neuronsPerLayerCount = new int[layersCount];
+
+    inputsCount = inputs;
+
+    for(int i=0;i<layersCount;i++)
+    {
+        fread(&neuronsCount, sizeof(int), 1, inputFile);
+        fread(&activationType, sizeof(int), 1, inputFile);
+
+        printf("%d %d\n", (int)neuronsCount, (int)activationType);
+
+        neuronsPerLayerCount[i] = neuronsCount;
+
+        weightsCount += inputsCount * neuronsCount;
+        biasesCount += neuronsCount;
+
+        inputsCount = neuronsCount;
+    }
+
+    weights = new REAL[weightsCount];
+    biases = new REAL[biasesCount];
+
+    inputsCount = inputs;
+
+    for(int i=0;i<layersCount;i++)
+    {
+
+        for(int j=0;j<neuronsPerLayerCount[i];j++)
+        {
+            for(int k=0;k<inputsCount;k++)
+            {
+                fread(&weight, sizeof(weight), 1, inputFile);
+                SwapBytes(&weight, sizeof(weight));
+                weights[weightNum++] = weight;
+            }
+
+            fread(&weight, sizeof(weight), 1, inputFile);
+            SwapBytes(&weight, sizeof(weight));
+            biases[neuronNum++] = weight;
+        }
+
+        inputsCount = neuronsPerLayerCount[i];
+    }
+
+    fclose(inputFile);
+
+    createNetwork(inputs, layersCount, neuronsPerLayerCount);
+    setWeightsAndBiases(weights, biases);
+
+    delete[] neuronsPerLayerCount;
+    delete[] weights;
+    delete[] biases;
+}
+
+void OpenNNL::save(const char *filename)
+{
+    FILE * outputFile;
+    REAL weight;
+    int weightNum = 0, neuronNum = 0;
+    BigEndian<unsigned int> inputsCount, layersCount;
+    BigEndian<unsigned int> neuronsCount, activationType = 1;
+    REAL * weights, * biases;
+
+    if(!(outputFile = fopen(filename, "w")))
+    {
+        fprintf(stderr, "Can't open file %s\n", filename);
+        return;
+    }
+
+    inputsCount = _inputsCount;
+    layersCount = _layersCount;
+
+    fwrite(&inputsCount, sizeof(int), 1, outputFile);
+    fwrite(&layersCount, sizeof(int), 1, outputFile);
+
+    for(int i=0;i<layersCount;i++)
+    {
+        neuronsCount = _neuronsPerLayerCount[i];
+
+        fwrite(&neuronsCount, sizeof(int), 1, outputFile);
+        fwrite(&activationType, sizeof(int), 1, outputFile);
+    }
+
+    weights = new REAL[_weightsCount*sizeof(REAL)];
+    biases = new REAL[_neuronsCount*sizeof(REAL)];
+
+    cudaCall(cudaMemcpy(weights, _neuronsInputsWeights, _weightsCount*sizeof(REAL), cudaMemcpyDeviceToHost));
+    cudaCall(cudaMemcpy(biases, _neuronsBiases, _neuronsCount*sizeof(REAL), cudaMemcpyDeviceToHost));
+
+    for(int i=0;i<layersCount;i++)
+    {
+        for(int j=0;j<_neuronsPerLayerCount[i];j++)
+        {
+            for(int k=0;k<_inputsInCurrentLayer[i];k++)
+            {
+                weight = weights[weightNum++];
+                SwapBytes(&weight, sizeof(weight));
+                fwrite(&weight, sizeof(weight), 1, outputFile);
+            }
+
+            weight = biases[neuronNum++];
+            SwapBytes(&weight, sizeof(weight));
+            fwrite(&weight, sizeof(weight), 1, outputFile);
+        }
+    }
+
+    fclose(outputFile);
 }

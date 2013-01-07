@@ -11,6 +11,7 @@ int maxArrayElementsIndex(REAL array[], int count);
 void testNetwork1();
 void testNetworkMnist(int epochCount);
 void prepareMnistDataAndTestNetwork();
+void loadNetworkFromFileAndTest();
 
 void startTimer(struct timespec * tp)
 {
@@ -34,7 +35,8 @@ void printTimerValue(struct timespec * tp, const char * message = "")
 
 int main()
 {
-    prepareMnistDataAndTestNetwork();
+    //prepareMnistDataAndTestNetwork();
+    loadNetworkFromFileAndTest();
 
     return 0;
 }
@@ -418,4 +420,15 @@ int maxArrayElementsIndex(REAL array[], int count)
     }
 
     return index;
+}
+
+void loadNetworkFromFileAndTest()
+{
+    OpenNNL * opennnl = new OpenNNL("data/phones_recognizer.dat");
+
+    opennnl->printDebugInfo();
+
+    opennnl->saveNetwork("data/phones_recognizer_new.dat");
+
+    delete opennnl;
 }
