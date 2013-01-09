@@ -17,7 +17,8 @@ HEADERS += \
     opennnl.h \
     utils.h \
     cuda_helper.h \
-    mnistfile.h
+    mnistfile.h \
+    LittleBigEndian.h
 
 
 CUDA_ARCH = sm_40
