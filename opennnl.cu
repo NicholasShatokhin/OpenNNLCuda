@@ -700,19 +700,6 @@ REAL OpenNNL::_changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrain
     int index = 0, n = neuronsInLastLayer;
     REAL * errors = new REAL[neuronsInLastLayer];
 
-    /*REAL * deviceOutputs;
-    REAL * deviceDerivatives;
-
-    REAL * deviceLocalGradients;
-    REAL * deviceErrors[2] = {NULL, NULL};
-
-    cudaCall(cudaMalloc ( (void**)&deviceOutputs, _neuronsCount*sizeof(REAL) ));
-    cudaCall(cudaMalloc ( (void**)&deviceDerivatives, _neuronsCount*sizeof(REAL) ));
-
-    cudaCall(cudaMalloc ( (void**)&deviceLocalGradients, _neuronsCount*sizeof(REAL) ));
-    cudaCall(cudaMalloc ( (void**)&deviceErrors[0], neuronsInLastLayer*sizeof(REAL) ));
-    cudaCall(cudaMalloc ( (void**)&deviceErrors[1], neuronsInLastLayer*sizeof(REAL) ));*/
-
     calculateNeuronsOutputsAndDerivatives(deviceTrainingInputs, deviceOutputs, deviceDerivatives);
 
     blocksCount = floor((REAL) neuronsInLastLayer / threads.x) + 1;
@@ -758,15 +745,18 @@ REAL OpenNNL::_changeWeightsByBP(REAL * deviceTrainingInputs, REAL * deviceTrain
 
     changeBiasesForFirstLayer <<<blocks, threads>>> (_neuronsBiases, deviceLocalGradients, speed, _neuronsPerLayerCount[0]);
 
-    blocksCount = floor((REAL) _weightsCount / threads.x) + 1;
-    blocks  = dim3(blocksCount, 1);
+    if(_layersCount > 1)
+    {
+        blocksCount = floor((REAL) _weightsCount / threads.x) + 1;
+        blocks  = dim3(blocksCount, 1);
 
-    changeWeightsForAnotherLayers <<<blocks, threads>>> (_neuronsInputsWeights, deviceLocalGradients, deviceOutputs, _deviceNeuronsInPreviousLayers, _deviceInputsInPreviousLayers, _deviceInputsInCurrentLayer, speed, _weightsCount, _layersCount);
+        changeWeightsForAnotherLayers <<<blocks, threads>>> (_neuronsInputsWeights, deviceLocalGradients, deviceOutputs, _deviceNeuronsInPreviousLayers, _deviceInputsInPreviousLayers, _deviceInputsInCurrentLayer, speed, _weightsCount, _layersCount);
 
-    blocksCount = floor((REAL) _neuronsCount / threads.x) + 1;
-    blocks  = dim3(blocksCount, 1);
+        blocksCount = floor((REAL) _neuronsCount / threads.x) + 1;
+        blocks  = dim3(blocksCount, 1);
 
-    changeBiasesForAnotherLayers <<<blocks, threads>>> (_neuronsBiases, deviceLocalGradients, speed, _neuronsCount, _neuronsInPreviousLayers[1]);
+        changeBiasesForAnotherLayers <<<blocks, threads>>> (_neuronsBiases, deviceLocalGradients, speed, _neuronsCount, _neuronsInPreviousLayers[1]);
+    }
 
     error = errors[0]/2;
     return error;
